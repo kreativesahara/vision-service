@@ -1,48 +1,91 @@
-import pytesseract
 import cv2
 import numpy as np
-import re
+from google.cloud import vision
 import os
+import re
 
-if os.getenv('TESSERACT_CMD'):
-    pytesseract.pytesseract.tesseract_cmd = os.getenv('TESSERACT_CMD')
+def get_vision_client():
+    try:
+        return vision.ImageAnnotatorClient()
+    except Exception as e:
+        print(f"Failed to initialize Google Vision client: {e}")
+        return None
 
 def extract_plate(image_bytes: bytes) -> dict:
+    # 1. Pre-processing for better OCR
     try:
         nparr = np.frombuffer(image_bytes, np.uint8)
         img = cv2.imdecode(nparr, cv2.IMREAD_COLOR)
+        
+        if img is not None:
+            # Convert to grayscale
+            gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
+            
+            # Increase contrast (CLAHE - Contrast Limited Adaptive Histogram Equalization)
+            clahe = cv2.createCLAHE(clipLimit=2.0, tileGridSize=(8,8))
+            contrast_img = clahe.apply(gray)
+            
+            # Encode back to bytes for Google Vision
+            _, buffer = cv2.imencode('.jpg', contrast_img)
+            processed_bytes = buffer.tobytes()
+        else:
+            processed_bytes = image_bytes
+    except Exception as e:
+        print(f"Pre-processing failed, using original: {e}")
+        processed_bytes = image_bytes
 
-        if img is None:
-            raise ValueError("Could not decode image")
+    client = get_vision_client()
+    if not client:
+        return {
+            'full_plate': None,
+            'public_prefix': None,
+            'hidden_suffix': None,
+            'confidence': 0.0,
+        }
 
-        # Basic preprocessing
-        gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
-        blur = cv2.GaussianBlur(gray, (5, 5), 0)
-        thresh = cv2.adaptiveThreshold(
-            blur, 255,
-            cv2.ADAPTIVE_THRESH_GAUSSIAN_C,
-            cv2.THRESH_BINARY, 11, 2
-        )
+    try:
+        image = vision.Image(content=processed_bytes)
+        # Switched to TEXT_DETECTION as requested (better for sparse text like plates)
+        response = client.text_detection(image=image)
+        
+        if response.error.message:
+            print(f"ERROR: Google Vision API returned an error: {response.error.message}")
+            return {
+                'full_plate': None,
+                'public_prefix': None,
+                'hidden_suffix': None,
+                'confidence': 0.0,
+            }
 
-        raw_text = pytesseract.image_to_string(
-            thresh,
-            config='--psm 8 --oem 3 -c tessedit_char_whitelist=ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789'
-        )
+        texts = response.text_annotations
+        if not texts:
+            return {
+                'full_plate': None,
+                'public_prefix': None,
+                'hidden_suffix': None,
+                'confidence': 0.0,
+            }
 
-        # Kenyan plate format: [A-Z]{3}\s*\d{3}[A-Z]
-        plate_pattern = re.search(r'([A-Z]{3})\s*(\d{3}[A-Z])', raw_text.upper())
+        raw_text = texts[0].description
+        print(f"DEBUG: Google Vision detected text:\n{raw_text}")
+        
+        # Clean text and search for Kenyan plate format
+        clean_text = re.sub(r'[\n\s]', '', raw_text.upper())
+        plate_pattern = re.search(r'([A-Z]{3})(\d{3}[A-Z])', clean_text)
 
         if plate_pattern:
             prefix = plate_pattern.group(1)
             suffix = plate_pattern.group(2)
+            print(f"SUCCESS: Google Vision extracted plate: {prefix} {suffix}")
             return {
                 'full_plate': f"{prefix} {suffix}",
                 'public_prefix': prefix,
                 'hidden_suffix': suffix,
-                'confidence': 0.90,
+                'confidence': 0.95,
             }
+
     except Exception as e:
-        print(f"Plate extraction error: {e}")
+        print(f"Google Vision Plate extraction error: {e}")
 
     return {
         'full_plate': None,

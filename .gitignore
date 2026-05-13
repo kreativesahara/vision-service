@@ -1,0 +1,32 @@
+# Virtual Environments
+venv/
+venv_new/
+env/
+.venv/
+
+# Python cache
+__pycache__/
+*.pyc
+
+# Environment variables
+.env
+.env.local
+
+# Compiled Python modules
+*.so
+
+# Logs
+logs
+*.log
+npm-debug.log*
+
+# Tests
+.pytest_cache/
+.coverage
+htmlcov/
+dist/
+build/
+
+# OS generated files
+.DS_Store
+Thumbs.db

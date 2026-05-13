@@ -1,0 +1,13 @@
+{
+  "type": "service_account",
+  "project_id": "kemotives",
+  "private_key_id": "b5e5cf7b0efaf9126bfa89bc877017fe4b6fd342",
+  "private_key": "-----BEGIN PRIVATE KEY-----\nMIIEvgIBADANBgkqhkiG9w0BAQEFAASCBKgwggSkAgEAAoIBAQD0AyRVNGtUD7mZ\nsqKtMmz+5/pFg/Lmf0UWqoX4IfsjaypS4xsztL05HHbzzBA/WcPwyiZTTo381dr/\nb4qcU6AYOCqi/rtA0FFW3LKNnIayg6oo37JcaLNz/tUxS2Z9XcePbDdHfsqAp1gM\nAyi2a4HkaXGfdpe6DHhrdqOnwa13QZ+3U3/I/7YHBl4VI3DcafDf+qYUwY+EB42g\nwFVl665ho65n7tT7bJtMfxoJVAvHLl1i7DzeRR8Pu/ZqiXvnhWd2uecRbQhti7/M\n5yn5OmFGtuCyTTviGOyZKmO/jmufyHJHHbItm84ACWRL4mELmgct2VYGH2irp4jN\nKyMfagXhAgMBAAECggEAEDtLRe20PAXFw18aKipCDNzSjaA+3q1Vo7HZMo3UHmGJ\nEbVwwEpEEhH+Ka6H4Cbw/Un9Lap6kHiLVlWNo2N+sU2/LFOEkkWpO3131Sq13Rcc\nERb8TuBaG5u2g85vtWQxG63HqZZaEx/OoBHvud7B57dJ6yEg66vbsM5WCZk9GEMg\ngj04g76Jtmif76Ins+4FedLP5Cdffter2h0YZe3P0AwrzASZ7MsxkDHaNAS88PLc\ndnGIX/Kaksf0hgXwqKLNFyfwJSdgqx81fEHHV1O4s2jwQ+vz1SkV8zl5DytzYwIb\nFV3mQB92oiF7MzDGFYcWgH6/OAfuA9EW8zhm1cp9qQKBgQD+yrtCN3aPUslm/ecx\nqsA4BSZPtOCwrgYxfwy/LjC5TLo+u3PEPGuv10JDgQxZoBtB0iJFXVxbSQHGXwqD\n0j/kixEPc96QT54Ze8ltM6VD236cq9d2JEwdwtaA2F7zt9ElO2UH/TCDkR+e0O4S\nKmSf+WAI1s8o68uLV7W6Zh4Z5QKBgQD1K1N2NU8qWRTO6NbfUyahSXIGC1yH6gyY\nAv4p2B42mD7MWxj5HdVMJp0H++/ojEPLL6mXlO9PoVlOq3yylKwG/VVSR/Aih3Wk\n8FsJqZj9LCxVtXgbPAdJ9bCfIQ5B8VUpyN3yVAWKDamKA4tEYU0gDtj6GxMs0432\nN8AKujeMTQKBgQC3HAWF6gw3pnx9mv2bMSahW/oTkF9mOjrTOYZ0owJ7OQwkZ10k\na3PM1HuXvdedVbYhEJ52kUj9hbNT2Bvbbq9iVRs2qsQJnF533AF/jH06DjWo7MqU\n6jMVtF+qC1X5+2HASzYpjqld9F7wKSDfRz43xeVhlNceho8qnidJRXhejQKBgHS6\nayN14DpWbXzSCTQNH/BcyqgsEqM3gUWC70Y2+rOdqxCbMvmxBZQbMlrRzfjXh5Of\nHszoAUTVmnLFXTqdZIZzaYMicyfNfOrJ8V5ZXFj2BinMm+HDo+jHzI8HKwWkhJq/\nY0T0UirXtGfcphsphJIF37K831VRaF7ZTlsNLFNlAoGBAMEHfUhzT5uqExVVbAh0\n9irunpYsOL8OcWSGyid3Ex/0b+CuFcVQqih9SDKH62ofx+6+NuQwnc+KMX7nonKZ\nxK5X4NW0K1xLsT3d4/O1gSemv2VCCtbTQAwxzmH3dtZCxV57IEbNc7I6kqY0X0bR\n3KFgnwVpq5PdYy0pYbSPscby\n-----END PRIVATE KEY-----\n",
+  "client_email": "kemotivesvision@kemotives.iam.gserviceaccount.com",
+  "client_id": "117616852709253038322",
+  "auth_uri": "https://accounts.google.com/o/oauth2/auth",
+  "token_uri": "https://oauth2.googleapis.com/token",
+  "auth_provider_x509_cert_url": "https://www.googleapis.com/oauth2/v1/certs",
+  "client_x509_cert_url": "https://www.googleapis.com/robot/v1/metadata/x509/kemotivesvision%40kemotives.iam.gserviceaccount.com",
+  "universe_domain": "googleapis.com"
+}
