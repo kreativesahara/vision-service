@@ -11,6 +11,7 @@ __pycache__/
 # Environment variables
 .env
 .env.local
+kemotives-b5e5cf7b0efa.json
 
 # Compiled Python modules
 *.so
