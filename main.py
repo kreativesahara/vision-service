@@ -10,7 +10,7 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
-from models import VisionResponse
+from models import VisionResponse, PlateResult, PlateDetection
 from services.duplicate import get_hash, check_duplicates
 from services.plate import extract_plate
 from services.specs import extract_specs
@@ -70,21 +70,38 @@ async def analyse_vehicle(
     loop = asyncio.get_event_loop()
     executor = ThreadPoolExecutor(max_workers=4)
 
-    # Plate detection: try all images until one works
+    # Plate detection: process ALL images to ensure all are blurred for privacy
     async def get_plate_result():
+        all_detections = []
         for idx, b in enumerate(image_bytes_list):
             res = await loop.run_in_executor(executor, extract_plate, b)
             if res.get('full_plate'):
-                res['image_index'] = idx
-                return res
-        return {
-            'full_plate': None,
-            'public_prefix': None,
-            'hidden_suffix': None,
-            'confidence': 0.0,
-            'bounding_box': None,
-            'image_index': None
-        }
+                all_detections.append(PlateDetection(
+                    full_plate=res['full_plate'],
+                    public_prefix=res['public_prefix'],
+                    hidden_suffix=res['hidden_suffix'],
+                    bounding_box=res['bounding_box'],
+                    image_index=idx
+                ))
+        
+        if not all_detections:
+            return PlateResult(
+                full_plate=None,
+                public_prefix=None,
+                hidden_suffix=None,
+                confidence=0.0,
+                detections=[]
+            )
+        
+        # Use the first one found as the primary one for autopopulate
+        primary = all_detections[0]
+        return PlateResult(
+            full_plate=primary.full_plate,
+            public_prefix=primary.public_prefix,
+            hidden_suffix=primary.hidden_suffix,
+            confidence=0.95,
+            detections=all_detections
+        )
 
     duplicate_task = loop.run_in_executor(executor, check_duplicates, new_hashes, existing)
     plate_task = get_plate_result()

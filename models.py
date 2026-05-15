@@ -8,13 +8,19 @@ class DuplicateResult(BaseModel):
     confidence: float
     hashes: List[str]
 
+class PlateDetection(BaseModel):
+    full_plate: str
+    public_prefix: str
+    hidden_suffix: str
+    bounding_box: List[dict]
+    image_index: int
+
 class PlateResult(BaseModel):
     full_plate: Optional[str]
     public_prefix: Optional[str]    # Shown publicly e.g. KBB
     hidden_suffix: Optional[str]    # Gated behind payment e.g. 675B
     confidence: float
-    bounding_box: Optional[List[dict]] = None # List of 4 vertices: {"x": x, "y": y}
-    image_index: Optional[int] = None
+    detections: List[PlateDetection] = []
 
 class SpecResult(BaseModel):
     # --- Core fields matching addProduct.jsx `values` state ---

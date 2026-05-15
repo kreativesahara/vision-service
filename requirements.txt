@@ -8,3 +8,4 @@ opencv-python-headless
 openai
 httpx
 python-dotenv
+google-cloud-vision
