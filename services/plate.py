@@ -76,12 +76,23 @@ def extract_plate(image_bytes: bytes) -> dict:
         if plate_pattern:
             prefix = plate_pattern.group(1)
             suffix = plate_pattern.group(2)
+            
+            # Find the bounding box for the plate
+            # For simplicity, we use the bounding box of the annotation that contains the plate text
+            # In TEXT_DETECTION, texts[0] is the whole block, but we can look for specific matches
+            box = None
+            for text in texts:
+                if prefix in text.description.upper() or suffix in text.description.upper():
+                    box = [{"x": v.x, "y": v.y} for v in text.bounding_poly.vertices]
+                    break
+            
             print(f"SUCCESS: Google Vision extracted plate: {prefix} {suffix}")
             return {
                 'full_plate': f"{prefix} {suffix}",
                 'public_prefix': prefix,
                 'hidden_suffix': suffix,
                 'confidence': 0.95,
+                'bounding_box': box
             }
 
     except Exception as e:

@@ -1,3 +1,4 @@
+# pyrefly: ignore [missing-import]
 from pydantic import BaseModel
 from typing import Optional, List
 
@@ -12,6 +13,8 @@ class PlateResult(BaseModel):
     public_prefix: Optional[str]    # Shown publicly e.g. KBB
     hidden_suffix: Optional[str]    # Gated behind payment e.g. 675B
     confidence: float
+    bounding_box: Optional[List[dict]] = None # List of 4 vertices: {"x": x, "y": y}
+    image_index: Optional[int] = None
 
 class SpecResult(BaseModel):
     # --- Core fields matching addProduct.jsx `values` state ---
