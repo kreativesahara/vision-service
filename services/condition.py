@@ -1,64 +1,41 @@
+import openai
+import base64
 import json
 import os
-from google import genai
-from google.genai import types
 
-# --- Vertex AI Client using the new google-genai SDK ---
-
-def _get_client():
-    return genai.Client(
-        vertexai=True,
-        project=os.getenv('GCP_PROJECT_ID', 'kemotives'),
-        location='us-central1'
-    )
-
-# --- Condition Assessment Logic ---
+client = openai.OpenAI(api_key=os.getenv('OPENAI_API_KEY'))
 
 CONDITION_PROMPT = """
 You are a certified vehicle condition inspector. Analyze this car photo and return ONLY valid JSON:
 {
-  "grade": "excellent", 
-  "score": 90,
+  "grade": "good",
+  "score": 74,
   "damage_flags": ["minor scratch on rear bumper"],
   "interior_condition": "good",
   "notes": "Overall well maintained."
 }
-Grade must be one of: excellent, good, fair, poor.
-Score must be 0-100.
-Return ONLY the JSON object.
 """
 
 def assess_condition(image_bytes: bytes) -> dict:
+    b64_image = base64.standard_b64encode(image_bytes).decode('utf-8')
     try:
-        client = _get_client()
-        
-        mime_type = 'image/jpeg'
-        if image_bytes[:8] == b'\x89PNG\r\n\x1a\n':
-            mime_type = 'image/png'
-
-        print(f"--- Gemini Condition Assessment Start ---")
-        print(f"Model: gemini-2.5-flash")
-        response = client.models.generate_content(
-            model='gemini-2.5-flash',
-            contents=[
-                CONDITION_PROMPT,
-                types.Part.from_bytes(data=image_bytes, mime_type=mime_type)
-            ]
+        response = client.chat.completions.create(
+            model='gpt-4o',
+            max_tokens=400,
+            messages=[{
+                'role': 'user',
+                'content': [
+                    {
+                        'type': 'image_url',
+                        'image_url': {
+                            'url': f"data:image/jpeg;base64,{b64_image}"
+                        }
+                    },
+                    {'type': 'text', 'text': CONDITION_PROMPT}
+                ]
+            }]
         )
-        
-        raw = response.text.strip()
-        print(f"Raw Output: {raw[:500]}...")
-        
-        if raw.startswith('```'):
-            raw = raw.split('```')[1]
-            if raw.startswith('json'):
-                raw = raw[4:]
-        raw = raw.strip()
-        
-        res = json.loads(raw)
-        print(f"Parsed Result: {json.dumps(res, indent=2)}")
-        print("--- Gemini Condition Assessment End ---")
-        return res
+        return json.loads(response.choices[0].message.content.strip())
     except Exception as e:
         print(f"Condition assessment failed: {e}")
         return {

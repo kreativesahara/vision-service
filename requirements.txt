@@ -3,9 +3,8 @@ uvicorn
 python-multipart
 Pillow
 imagehash
+pytesseract
 opencv-python-headless
-google-generativeai
-google-genai
+openai
 httpx
 python-dotenv
-google-cloud-vision
