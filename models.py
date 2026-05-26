@@ -40,7 +40,6 @@ class SpecResult(BaseModel):
 
     # --- Vision metadata ---
     confidence: float               # 0.0 to 1.0
-    field_confidences: Optional[dict] = {}
     autopopulate: bool              # True when confidence >= 0.75
 
 class ConditionResult(BaseModel):
