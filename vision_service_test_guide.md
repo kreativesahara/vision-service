@@ -28,10 +28,9 @@ Open your terminal (e.g., Git Bash or PowerShell) and run the following:
     ```
 
 2.  **Start the server**:
-    Activate the virtual environment and run the ASGI server using `uvicorn`:
+    Use the direct path to the virtual environment's Python to run the ASGI server using `uvicorn` (this avoids activation issues in some shells):
     ```bash
-    source ../.venv/Scripts/activate
-    uvicorn main:app --port 8000 --reload
+    venv/Scripts/python.exe -m uvicorn main:app --port 8000 --reload
     ```
     The service is now running at `http://localhost:8000`.
 
@@ -58,9 +57,9 @@ The `addProduct.jsx` form is now integrated with this service. To test the full 
 To verify the API independently of the frontend, use the provided test script:
 
 1.  **Run the test**:
-    Ensure your virtual environment is activated, then run the test script:
+    Use the direct path to the virtual environment's Python to ensure all dependencies are found:
     ```bash
-    python test_vision.py
+    venv/Scripts/python.exe test_vision.py
     ```
     This script sends a dummy image to the service and prints the JSON response to your terminal.
 
