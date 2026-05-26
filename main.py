@@ -70,6 +70,22 @@ async def analyse_vehicle(
     loop = asyncio.get_event_loop()
     executor = ThreadPoolExecutor(max_workers=4)
 
+    # Plate detection: try all images until one works
+    async def get_plate_result():
+        for idx, b in enumerate(image_bytes_list):
+            res = await loop.run_in_executor(executor, extract_plate, b)
+            if res.get('full_plate'):
+                res['image_index'] = idx
+                return res
+        return {
+            'full_plate': None,
+            'public_prefix': None,
+            'hidden_suffix': None,
+            'confidence': 0.0,
+            'bounding_box': None,
+            'image_index': None
+        }
+
     duplicate_task = loop.run_in_executor(executor, check_duplicates, new_hashes, existing)
     plate_task = loop.run_in_executor(executor, extract_plate, primary_image)
     specs_task = loop.run_in_executor(executor, extract_specs, primary_image)
