@@ -1,4 +1,4 @@
-npm# Vision Service: Running & Testing Guide
+# Vision Service: Running & Testing Guide
 
 This guide provides a step-by-step procedure to run and test the Vehicle Vision Microservice, which handles AI-powered spec extraction, license plate recognition, and duplicate detection.
 
@@ -28,9 +28,10 @@ Open your terminal (e.g., Git Bash or PowerShell) and run the following:
     ```
 
 2.  **Start the server**:
-    Instead of relying on activation (which can be inconsistent in some shells), use the direct path to the virtual environment's Python:
+    Activate the virtual environment and run the ASGI server using `uvicorn`:
     ```bash
-    ./venv_new/Scripts/python.exe -m uvicorn main:app --port 8000 --reload
+    source ../.venv/Scripts/activate
+    uvicorn main:app --port 8000 --reload
     ```
     The service is now running at `http://localhost:8000`.
 
@@ -57,9 +58,9 @@ The `addProduct.jsx` form is now integrated with this service. To test the full 
 To verify the API independently of the frontend, use the provided test script:
 
 1.  **Run the test**:
-    Use the direct path to the virtual environment's Python to ensure all dependencies (`httpx`, etc.) are found:
+    Ensure your virtual environment is activated, then run the test script:
     ```bash
-    ./venv_new/Scripts/python.exe test_vision.py
+    python test_vision.py
     ```
     This script sends a dummy image to the service and prints the JSON response to your terminal.
 
