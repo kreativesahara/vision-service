@@ -9,10 +9,10 @@ class DuplicateResult(BaseModel):
     hashes: List[str]
 
 class PlateDetection(BaseModel):
-    full_plate: str
-    public_prefix: str
-    hidden_suffix: str
-    bounding_box: List[dict]
+    full_plate: Optional[str] = None
+    public_prefix: Optional[str] = None
+    hidden_suffix: Optional[str] = None
+    bounding_box: Optional[List[dict]] = None
     image_index: int
 
 class PlateResult(BaseModel):
