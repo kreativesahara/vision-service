@@ -32,6 +32,7 @@ CONFIDENCE_THRESHOLD = 0.69
 
 SPEC_PROMPT = """
 You are a professional vehicle inspector analyzing a car photo for a Kenyan vehicle marketplace.
+Carefully analyze the vehicle's body shape, logos, and badges to determine the exact make and model.
 Extract details and return ONLY valid JSON:
 {
   "make":           {"value": "Toyota",                    "confidence": 0.97},
@@ -42,28 +43,29 @@ Extract details and return ONLY valid JSON:
   "transmission":   {"value": "Automatic",                 "confidence": 0.85},
   "driveSystem":    {"value": "4WD",                       "confidence": 0.75},
   "category":       {"value": "Station Wagon",             "confidence": 0.98},
-  "condition":      {"value": "Foreign Used Unregistered", "confidence": 0.82}
+  "condition":      {"value": "Foreign Used Unregistered", "confidence": 0.82},
+  "colour":         {"value": "White",                     "confidence": 0.99},
+  "trim":           {"value": "G",                         "confidence": 0.50}
 }
 Return ONLY the JSON object.
 """
 
-def extract_specs(image_bytes: bytes) -> dict:
+def extract_specs(images: list[bytes]) -> dict:
     try:
         client = _get_client()
         
-        # Detect mime type
-        mime_type = 'image/jpeg'
-        if image_bytes[:8] == b'\x89PNG\r\n\x1a\n':
-            mime_type = 'image/png'
+        contents = [SPEC_PROMPT]
+        for img_bytes in images:
+            mime_type = 'image/jpeg'
+            if img_bytes[:8] == b'\x89PNG\r\n\x1a\n':
+                mime_type = 'image/png'
+            contents.append(types.Part.from_bytes(data=img_bytes, mime_type=mime_type))
 
         print(f"--- Gemini Spec Extraction Start ({client.vertexai=}) ---")
-        print(f"Model: gemini-2.5-flash")
+        print(f"Model: gemini-2.5-pro")
         response = client.models.generate_content(
-            model='gemini-2.5-flash',
-            contents=[
-                SPEC_PROMPT,
-                types.Part.from_bytes(data=image_bytes, mime_type=mime_type)
-            ]
+            model='gemini-2.5-pro',
+            contents=contents
         )
         
         raw = response.text.strip()

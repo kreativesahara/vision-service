@@ -73,16 +73,20 @@ async def analyse_vehicle(
     # Plate detection: process ALL images to ensure all are blurred for privacy
     async def get_plate_result():
         all_detections = []
+        primary_plate = None
         for idx, b in enumerate(image_bytes_list):
             res = await loop.run_in_executor(executor, extract_plate, b)
-            if res.get('full_plate'):
-                all_detections.append(PlateDetection(
-                    full_plate=res['full_plate'],
-                    public_prefix=res['public_prefix'],
-                    hidden_suffix=res['hidden_suffix'],
-                    bounding_box=res['bounding_box'],
+            if res.get('bounding_box') or res.get('full_plate'):
+                det = PlateDetection(
+                    full_plate=res.get('full_plate'),
+                    public_prefix=res.get('public_prefix'),
+                    hidden_suffix=res.get('hidden_suffix'),
+                    bounding_box=res.get('bounding_box'),
                     image_index=idx
-                ))
+                )
+                all_detections.append(det)
+                if not primary_plate and det.full_plate:
+                    primary_plate = det
         
         if not all_detections:
             return PlateResult(
@@ -93,19 +97,17 @@ async def analyse_vehicle(
                 detections=[]
             )
         
-        # Use the first one found as the primary one for autopopulate
-        primary = all_detections[0]
         return PlateResult(
-            full_plate=primary.full_plate,
-            public_prefix=primary.public_prefix,
-            hidden_suffix=primary.hidden_suffix,
-            confidence=0.95,
+            full_plate=primary_plate.full_plate if primary_plate else None,
+            public_prefix=primary_plate.public_prefix if primary_plate else None,
+            hidden_suffix=primary_plate.hidden_suffix if primary_plate else None,
+            confidence=0.95 if primary_plate else 0.0,
             detections=all_detections
         )
 
     duplicate_task = loop.run_in_executor(executor, check_duplicates, new_hashes, existing)
     plate_task = get_plate_result()
-    specs_task = loop.run_in_executor(executor, extract_specs, primary_image)
+    specs_task = loop.run_in_executor(executor, extract_specs, image_bytes_list)
     condition_task = loop.run_in_executor(executor, assess_condition, primary_image)
 
     duplicate_result, plate_result, specs_result, condition_result = await asyncio.gather(
