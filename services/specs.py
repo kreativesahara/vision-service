@@ -28,7 +28,7 @@ VALID_CONDITIONS = [
     'Local Used', 'Reconditioned', 'Certified Pre-Owned'
 ]
 
-CONFIDENCE_THRESHOLD = 0.90
+CONFIDENCE_THRESHOLD = 0.69
 
 SPEC_PROMPT = """
 You are a professional vehicle inspector analyzing a car photo for a Kenyan vehicle marketplace.
