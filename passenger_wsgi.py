@@ -14,11 +14,9 @@ os.environ["NUMEXPR_NUM_THREADS"] = "1"
 APP_DIR = os.path.dirname(os.path.abspath(__file__))
 LOG_FILE = os.path.join(APP_DIR, "wsgi_error.log")
 
-# Write a startup marker
 with open(LOG_FILE, "a") as f:
     f.write(f"\n--- STARTUP ATTEMPT at {datetime.datetime.now()} ---\n")
 
-# Try to load the FastAPI app
 fastapi_loaded = False
 load_error = None
 
@@ -42,16 +40,15 @@ def application(environ, start_response):
     with open(LOG_FILE, "a") as f:
         f.write(f"REQUEST: {environ.get('REQUEST_METHOD')} {path} at {datetime.datetime.now()}\n")
 
-    # Pure WSGI test endpoint — no FastAPI, no a2wsgi
+    # Pure WSGI test endpoint
     if path == "/_wsgi_test":
-        body = json.dumps({"wsgi": "ok", "python": sys.version, "fastapi_loaded": fastapi_loaded}).encode("utf-8")
+        body = json.dumps({"wsgi": "ok", "fastapi_loaded": fastapi_loaded}).encode("utf-8")
         start_response("200 OK", [
             ("Content-Type", "application/json"),
             ("Content-Length", str(len(body))),
         ])
         return [body]
 
-    # If FastAPI failed to load, return the error
     if not fastapi_loaded:
         msg = f"App failed to start: {load_error}\n".encode("utf-8")
         start_response("500 Internal Server Error", [
@@ -60,12 +57,44 @@ def application(environ, start_response):
         ])
         return [msg]
 
-    # Forward to FastAPI via a2wsgi
-    try:
-        result = asgi_application(environ, start_response)
+    # Intercept a2wsgi response to debug what Passenger rejects
+    captured_status = [None]
+    captured_headers = [None]
+
+    def capture_start_response(status, headers, exc_info=None):
+        captured_status[0] = status
+        captured_headers[0] = headers
         with open(LOG_FILE, "a") as f:
-            f.write(f"REQUEST OK for {path}\n")
-        return result
+            f.write(f"  a2wsgi status: {status}\n")
+            f.write(f"  a2wsgi headers: {headers}\n")
+        return start_response(status, headers, exc_info)
+
+    try:
+        result = asgi_application(environ, capture_start_response)
+        # Collect body chunks
+        body_parts = []
+        for chunk in result:
+            body_parts.append(chunk)
+
+        with open(LOG_FILE, "a") as f:
+            total_len = sum(len(c) for c in body_parts)
+            preview = b"".join(body_parts)[:200]
+            f.write(f"  a2wsgi body length: {total_len}\n")
+            f.write(f"  a2wsgi body preview: {preview}\n")
+
+        # If a2wsgi didn't call start_response, do it ourselves
+        if captured_status[0] is None:
+            with open(LOG_FILE, "a") as f:
+                f.write("  WARNING: a2wsgi never called start_response!\n")
+            body = json.dumps({"error": "ASGI bridge failed silently"}).encode("utf-8")
+            start_response("502 Bad Gateway", [
+                ("Content-Type", "application/json"),
+                ("Content-Length", str(len(body))),
+            ])
+            return [body]
+
+        return body_parts
+
     except Exception as e:
         with open(LOG_FILE, "a") as f:
             f.write(f"REQUEST ERROR for {path}:\n{traceback.format_exc()}\n")
