@@ -4,9 +4,8 @@ import traceback
 import json
 import time
 import datetime
-import asyncio
-import cgi
 from io import BytesIO
+from urllib.parse import parse_qs
 
 # Set environment variables to restrict OpenBLAS/MKL threads before importing anything else
 os.environ["OPENBLAS_NUM_THREADS"] = "1"
@@ -24,9 +23,15 @@ with open(LOG_FILE, "a") as f:
     f.write(f"\n--- STARTUP at {datetime.datetime.now()} ---\n")
 
 # Import services
+services_loaded = False
+load_error_msg = None
+
 try:
     from dotenv import load_dotenv
     load_dotenv(os.path.join(APP_DIR, ".env"))
+
+    with open(LOG_FILE, "a") as f:
+        f.write("Loading services...\n")
 
     from services.duplicate import get_hash, check_duplicates
     from services.plate import extract_plate
@@ -36,17 +41,19 @@ try:
     SUPABASE_URL = os.getenv('SUPABASE_URL')
     SUPABASE_KEY = os.getenv('SUPABASE_SERVICE_KEY')
 
+    services_loaded = True
     with open(LOG_FILE, "a") as f:
-        f.write("All services imported successfully.\n")
+        f.write("All services loaded. App ready.\n")
 
 except Exception as e:
+    load_error_msg = traceback.format_exc()
     with open(LOG_FILE, "a") as f:
-        f.write(f"IMPORT ERROR:\n{traceback.format_exc()}\n")
+        f.write(f"IMPORT ERROR:\n{load_error_msg}\n")
     SUPABASE_URL = None
     SUPABASE_KEY = None
 
 
-# ── CORS helpers ───────────────────────────────────────────────
+# ── CORS headers ───────────────────────────────────────────────
 CORS_HEADERS = [
     ("Access-Control-Allow-Origin", "*"),
     ("Access-Control-Allow-Methods", "GET, POST, OPTIONS"),
@@ -66,6 +73,74 @@ def error_response(start_response, detail, status="500 Internal Server Error"):
     return json_response(start_response, {"detail": detail}, status)
 
 
+# ── Multipart parser (no cgi module needed) ───────────────────
+def parse_multipart(environ):
+    """Parse multipart/form-data from WSGI environ without the cgi module."""
+    content_type = environ.get("CONTENT_TYPE", "")
+    if "boundary=" not in content_type:
+        return {}, {}
+
+    boundary = content_type.split("boundary=")[1].strip()
+    if boundary.startswith('"') and boundary.endswith('"'):
+        boundary = boundary[1:-1]
+
+    content_length = int(environ.get("CONTENT_LENGTH", 0))
+    body = environ["wsgi.input"].read(content_length)
+
+    boundary_bytes = ("--" + boundary).encode("utf-8")
+    end_boundary = (boundary_bytes + b"--")
+
+    parts = body.split(boundary_bytes)
+    files = {}
+    fields = {}
+
+    for part in parts:
+        if not part or part.strip() == b"" or part.strip() == b"--":
+            continue
+
+        # Remove leading \r\n
+        if part.startswith(b"\r\n"):
+            part = part[2:]
+        # Remove trailing \r\n--
+        if part.endswith(b"\r\n"):
+            part = part[:-2]
+        if part.endswith(b"--"):
+            part = part[:-2]
+        if part.endswith(b"\r\n"):
+            part = part[:-2]
+
+        # Split headers from body
+        if b"\r\n\r\n" not in part:
+            continue
+
+        header_block, file_data = part.split(b"\r\n\r\n", 1)
+        headers_text = header_block.decode("utf-8", errors="replace")
+
+        # Parse Content-Disposition
+        name = None
+        filename = None
+        for line in headers_text.split("\r\n"):
+            if "Content-Disposition:" in line:
+                if 'name="' in line:
+                    name = line.split('name="')[1].split('"')[0]
+                if 'filename="' in line:
+                    filename = line.split('filename="')[1].split('"')[0]
+
+        if not name:
+            continue
+
+        if filename:
+            # File field
+            if name not in files:
+                files[name] = []
+            files[name].append(file_data)
+        else:
+            # Regular field
+            fields[name] = file_data.decode("utf-8", errors="replace")
+
+    return files, fields
+
+
 # ── Route: GET /health ─────────────────────────────────────────
 def handle_health(environ, start_response):
     return json_response(start_response, {"status": "ok"})
@@ -73,40 +148,27 @@ def handle_health(environ, start_response):
 
 # ── Route: POST /analyse ──────────────────────────────────────
 def handle_analyse(environ, start_response):
-    start = time.time()
+    if not services_loaded:
+        return error_response(start_response, f"Services failed to load: {load_error_msg}")
 
-    # Parse multipart form data
+    start_time = time.time()
+
     content_type = environ.get("CONTENT_TYPE", "")
     if "multipart/form-data" not in content_type:
         return error_response(start_response, "Content-Type must be multipart/form-data", "400 Bad Request")
 
     try:
-        fs = cgi.FieldStorage(
-            fp=environ["wsgi.input"],
-            environ=environ,
-            keep_blank_values=True,
-        )
+        files, fields = parse_multipart(environ)
     except Exception as e:
+        with open(LOG_FILE, "a") as f:
+            f.write(f"Multipart parse error: {traceback.format_exc()}\n")
         return error_response(start_response, f"Failed to parse form data: {e}", "400 Bad Request")
 
-    # Extract images
-    image_items = fs["images"] if "images" in fs else []
-    if not isinstance(image_items, list):
-        image_items = [image_items]
-
-    image_bytes_list = []
-    for item in image_items:
-        if item.file:
-            image_bytes_list.append(item.file.read())
-
+    image_bytes_list = files.get("images", [])
     if not image_bytes_list:
         return error_response(start_response, "No images provided", "400 Bad Request")
 
-    # Extract listing_id
-    listing_id = None
-    if "listing_id" in fs:
-        listing_id = fs["listing_id"].value
-
+    listing_id = fields.get("listing_id")
     primary_image = image_bytes_list[0]
 
     # 1. Hashing
@@ -138,7 +200,7 @@ def handle_analyse(environ, start_response):
     # 3. Run analysis
     duplicate_result = check_duplicates(new_hashes, existing)
 
-    # Plate detection across all images
+    # Plate detection
     all_detections = []
     primary_plate = None
     for idx, b in enumerate(image_bytes_list):
@@ -166,17 +228,9 @@ def handle_analyse(environ, start_response):
     specs_result = extract_specs(image_bytes_list)
     condition_result = assess_condition(primary_image)
 
-    elapsed = int((time.time() - start) * 1000)
+    elapsed = int((time.time() - start_time) * 1000)
 
-    response_data = {
-        "duplicate": duplicate_result,
-        "plate": plate_result,
-        "specs": specs_result,
-        "condition": condition_result,
-        "processing_time_ms": elapsed,
-    }
-
-    # Convert any Pydantic models or non-serializable objects to dicts
+    # Convert Pydantic models to dicts
     def to_serializable(obj):
         if hasattr(obj, "model_dump"):
             return obj.model_dump()
@@ -188,7 +242,14 @@ def handle_analyse(environ, start_response):
             return [to_serializable(i) for i in obj]
         return obj
 
-    response_data = to_serializable(response_data)
+    response_data = to_serializable({
+        "duplicate": duplicate_result,
+        "plate": plate_result,
+        "specs": specs_result,
+        "condition": condition_result,
+        "processing_time_ms": elapsed,
+    })
+
     return json_response(start_response, response_data)
 
 
@@ -200,7 +261,7 @@ def application(environ, start_response):
     with open(LOG_FILE, "a") as f:
         f.write(f"REQUEST: {method} {path} at {datetime.datetime.now()}\n")
 
-    # Handle CORS preflight
+    # CORS preflight
     if method == "OPTIONS":
         start_response("204 No Content", CORS_HEADERS)
         return [b""]
