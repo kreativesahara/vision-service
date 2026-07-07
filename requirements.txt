@@ -9,3 +9,4 @@ google-genai
 httpx
 python-dotenv
 google-cloud-vision
+a2wsgi
