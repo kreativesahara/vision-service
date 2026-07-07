@@ -1,5 +1,13 @@
 import sys
 import os
+
+# Set environment variables to restrict OpenBLAS/MKL threads before importing anything else
+os.environ["OPENBLAS_NUM_THREADS"] = "1"
+os.environ["MKL_NUM_THREADS"] = "1"
+os.environ["OMP_NUM_THREADS"] = "1"
+os.environ["VECLIB_MAXIMUM_THREADS"] = "1"
+os.environ["NUMEXPR_NUM_THREADS"] = "1"
+
 from a2wsgi import ASGIMiddleware
 
 # Add the application directory to the system path
