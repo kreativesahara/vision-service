@@ -30,9 +30,9 @@ Open your terminal (e.g., Git Bash or PowerShell) and run the following:
 2.  **Start the server**:
     Use the direct path to the virtual environment's Python to run the ASGI server using `uvicorn` (this avoids activation issues in some shells):
     ```bash
-    venv/Scripts/python.exe -m uvicorn main:app --port 8000 --reload
+    venv/Scripts/python.exe -m uvicorn main:app --port 8001 --reload
     ```
-    The service is now running at `http://localhost:8000`.
+    The service is now running at `http://localhost:8001`.
 
 ---
 
