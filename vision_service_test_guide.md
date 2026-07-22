@@ -35,7 +35,7 @@ Open your terminal (e.g., Git Bash or PowerShell) and run the following:
     Alternatively:
     ```bash
     venv\Scripts\activate
-uvicorn main:app --port 8001 --reload
+    uvicorn main:app --port 8001 --reload
     ```
     
     The service is now running at `http://localhost:8001`.
