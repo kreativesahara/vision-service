@@ -2,7 +2,7 @@ name: Test and deploy
 
 # Tests every push and pull request. A push to main then deploys to the cPanel server over SSH, checks the app
 # loaded its services and can still read a plate, and rolls production back if anything fails.
-# One-time setup (SSH key, secrets, server checkout): vision_service_production_fix.md, section 7.
+# One-time setup (SSH key, secrets, server checkout): vision_service_production_fix.md in the kemotives monorepo, §7.
 
 on:
   push:
@@ -53,7 +53,6 @@ jobs:
     if: github.event_name != 'pull_request' && github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
     timeout-minutes: 15
-    environment: production
     concurrency:
       group: vision-production
       cancel-in-progress: false

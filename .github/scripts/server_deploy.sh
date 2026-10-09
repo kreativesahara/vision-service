@@ -35,7 +35,7 @@ case "${1:-}" in
     # Fast-forward only: a merge that conflicts would leave conflict markers in the live code
     if ! git merge --ff-only --quiet origin/main; then
       echo "Not deploying: the server checkout has commits that are not on GitHub."
-      echo "Make it match origin/main once (vision_service_production_fix.md, section 7), then re-run."
+      echo "Make it match origin/main once (vision_service_production_fix.md in the kemotives monorepo, §7), then re-run."
       exit 1
     fi
     after=$(git rev-parse HEAD)
