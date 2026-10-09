@@ -225,7 +225,7 @@ def handle_analyse(environ, start_response):
     # Run analysis, slowest steps first so they start straight away. Condition looks at every photo, so the inside of
     # the car counts when the seller photographed it; plates are read on every image so each visible plate is blurred.
     tasks = {
-        "condition": (assess_condition, (image_bytes_list,)),
+        "condition": (assess_condition, (image_bytes_list[:3],)),
         "specs": (extract_specs, (image_bytes_list,)),
     }
     tasks.update({("plate", idx): (extract_plate, (b,)) for idx, b in enumerate(image_bytes_list)})
