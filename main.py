@@ -10,7 +10,6 @@ import asyncio
 from fastapi import FastAPI, File, UploadFile, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from typing import List
-import httpx
 from concurrent.futures import ThreadPoolExecutor
 from dotenv import load_dotenv
 
@@ -36,14 +35,8 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-SUPABASE_URL = os.getenv('SUPABASE_URL')
-SUPABASE_KEY = os.getenv('SUPABASE_SERVICE_KEY')
-
 @app.post('/analyse', response_model=VisionResponse)
-async def analyse_vehicle(
-    images: List[UploadFile] = File(...),
-    listing_id: str = None
-):
+async def analyse_vehicle(images: List[UploadFile] = File(...)):
     start = time.time()
     if not images:
         raise HTTPException(status_code=400, detail='No images provided')
@@ -54,27 +47,9 @@ async def analyse_vehicle(
     # 1. Perceptual hashing for duplicate check
     new_hashes = [get_hash(b) for b in image_bytes_list]
 
-    # 2. Mock or Fetch existing hashes from Supabase
+    # 2. Nothing to compare against: listings live in Laravel's `cars` table, which stores no image hashes
+    #    (the old lookup read a `products` table that doesn't exist)
     existing = []
-    if SUPABASE_URL and SUPABASE_KEY:
-        try:
-            async with httpx.AsyncClient() as client:
-                resp = await client.get(
-                    f"{SUPABASE_URL}/rest/v1/products",
-                    params={'select': 'id,image_hashes'},
-                    headers={
-                        'apikey': SUPABASE_KEY,
-                        'Authorization': f'Bearer {SUPABASE_KEY}',
-                    },
-                    timeout=5.0
-                )
-                if resp.status_code == 200:
-                    existing = resp.json()
-        except Exception as e:
-            print(f"Supabase fetch error: {e}")
-
-    if listing_id:
-        existing = [l for l in existing if str(l.get('id')) != str(listing_id)]
 
     # 3. Parallel Execution of AI checks
     loop = asyncio.get_event_loop()

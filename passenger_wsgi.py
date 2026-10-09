@@ -1,5 +1,6 @@
 import sys
 import os
+import threading
 import traceback
 import json
 import time
@@ -19,8 +20,22 @@ LOG_FILE = os.path.join(APP_DIR, "wsgi_error.log")
 
 sys.path.insert(0, APP_DIR)
 
-with open(LOG_FILE, "a") as f:
-    f.write(f"\n--- STARTUP at {datetime.datetime.now()} ---\n")
+# lswsgi embeds Python under the C locale, so stdout and stderr (LiteSpeed writes them to stderr.log) are ASCII and
+# printing anything else raises. An em dash in a log line used to throw away detected plates, and Gemini's replies
+# (curly quotes, dashes) can break the specs and condition steps the same way.
+for _stream in (sys.stdout, sys.stderr):
+    try:
+        _stream.reconfigure(encoding="utf-8", errors="backslashreplace")
+    except (AttributeError, ValueError):
+        pass
+
+
+def _log(message):
+    with open(LOG_FILE, "a", encoding="utf-8", errors="backslashreplace") as f:
+        f.write(message + "\n")
+
+
+_log(f"\n--- STARTUP at {datetime.datetime.now()} ---")
 
 # Import services
 services_loaded = False
@@ -30,8 +45,7 @@ try:
     from dotenv import load_dotenv
     load_dotenv(os.path.join(APP_DIR, ".env"))
 
-    with open(LOG_FILE, "a") as f:
-        f.write("Loading services...\n")
+    _log("Loading services...")
 
     # OpenCV ignores the thread variables above and starts one thread per CPU core (96 on the server) on its
     # first parallel call. The hosting account allows 100 processes + threads in total, so that starves PHP (503s).
@@ -43,19 +57,12 @@ try:
     from services.specs import extract_specs
     from services.condition import assess_condition
 
-    SUPABASE_URL = os.getenv('SUPABASE_URL')
-    SUPABASE_KEY = os.getenv('SUPABASE_SERVICE_KEY')
-
     services_loaded = True
-    with open(LOG_FILE, "a") as f:
-        f.write("All services loaded. App ready.\n")
+    _log("All services loaded. App ready.")
 
 except Exception as e:
     load_error_msg = traceback.format_exc()
-    with open(LOG_FILE, "a") as f:
-        f.write(f"IMPORT ERROR:\n{load_error_msg}\n")
-    SUPABASE_URL = None
-    SUPABASE_KEY = None
+    _log(f"IMPORT ERROR:\n{load_error_msg}")
 
 
 # ── CORS headers ───────────────────────────────────────────────
@@ -151,6 +158,47 @@ def handle_health(environ, start_response):
     return json_response(start_response, {"status": "ok"})
 
 
+# ── Parallel analysis steps ────────────────────────────────────
+# Steps run side by side, so the seller waits for the slowest step rather than the sum of all of them. Few threads,
+# because the hosting account caps processes + threads at 100.
+ANALYSIS_THREADS = 3
+
+
+def run_concurrently(tasks):
+    """Run {key: (fn, args)} side by side; returns {key: result, or None if the step raised}. A step the host won't
+    give a thread to runs on the request's own thread instead, so a refusal only makes the analysis slower."""
+    pending = list(tasks.items())
+    lock = threading.Lock()
+    results = {}
+
+    def work():
+        while True:
+            with lock:
+                if not pending:
+                    return
+                key, (fn, args) = pending.pop(0)
+            try:
+                results[key] = fn(*args)
+            except Exception:
+                _log(f"Analysis step {key} failed:\n{traceback.format_exc()}")
+                results[key] = None
+
+    threads = []
+    for _ in range(min(ANALYSIS_THREADS, len(pending))):
+        thread = threading.Thread(target=work, daemon=True)
+        try:
+            thread.start()
+        except RuntimeError:
+            _log("Could not start an analysis thread; the request thread runs the remaining steps")
+            break
+        threads.append(thread)
+
+    work()
+    for thread in threads:
+        thread.join()
+    return results
+
+
 # ── Route: POST /analyse ──────────────────────────────────────
 def handle_analyse(environ, start_response):
     if not services_loaded:
@@ -165,51 +213,36 @@ def handle_analyse(environ, start_response):
     try:
         files, fields = parse_multipart(environ)
     except Exception as e:
-        with open(LOG_FILE, "a") as f:
-            f.write(f"Multipart parse error: {traceback.format_exc()}\n")
+        _log(f"Multipart parse error: {traceback.format_exc()}")
         return error_response(start_response, f"Failed to parse form data: {e}", "400 Bad Request")
 
     image_bytes_list = files.get("images", [])
     if not image_bytes_list:
         return error_response(start_response, "No images provided", "400 Bad Request")
 
-    listing_id = fields.get("listing_id")
     primary_image = image_bytes_list[0]
 
     # 1. Hashing
     new_hashes = [get_hash(b) for b in image_bytes_list]
 
-    # 2. Fetch existing hashes from Supabase
-    existing = []
-    if SUPABASE_URL and SUPABASE_KEY:
-        try:
-            import httpx
-            with httpx.Client(timeout=5.0) as client:
-                resp = client.get(
-                    f"{SUPABASE_URL}/rest/v1/products",
-                    params={"select": "id,image_hashes"},
-                    headers={
-                        "apikey": SUPABASE_KEY,
-                        "Authorization": f"Bearer {SUPABASE_KEY}",
-                    },
-                )
-                if resp.status_code == 200:
-                    existing = resp.json()
-        except Exception as e:
-            with open(LOG_FILE, "a") as f:
-                f.write(f"Supabase fetch error: {e}\n")
+    # 2. Duplicate check. Listings live in Laravel's `cars` table, which stores no image hashes, so there is nothing
+    #    to compare against here; the old lookup read a `products` table that doesn't exist and never matched.
+    duplicate_result = check_duplicates(new_hashes, [])
 
-    if listing_id:
-        existing = [l for l in existing if str(l.get("id")) != str(listing_id)]
-
-    # 3. Run analysis
-    duplicate_result = check_duplicates(new_hashes, existing)
+    # 3. Run analysis, slowest steps first so they start straight away. Plates are read on every image so each
+    #    visible plate can be blurred.
+    tasks = {
+        "condition": (assess_condition, (primary_image,)),
+        "specs": (extract_specs, (image_bytes_list,)),
+    }
+    tasks.update({("plate", idx): (extract_plate, (b,)) for idx, b in enumerate(image_bytes_list)})
+    results = run_concurrently(tasks)
 
     # Plate detection
     all_detections = []
     primary_plate = None
-    for idx, b in enumerate(image_bytes_list):
-        res = extract_plate(b)
+    for idx in range(len(image_bytes_list)):
+        res = results.get(("plate", idx)) or {}
         if res.get("bounding_box") or res.get("full_plate"):
             det = {
                 "full_plate": res.get("full_plate"),
@@ -230,8 +263,8 @@ def handle_analyse(environ, start_response):
         "detections": all_detections,
     }
 
-    specs_result = extract_specs(image_bytes_list)
-    condition_result = assess_condition(primary_image)
+    specs_result = results.get("specs")
+    condition_result = results.get("condition")
 
     elapsed = int((time.time() - start_time) * 1000)
 
@@ -263,8 +296,7 @@ def application(environ, start_response):
     path = environ.get("PATH_INFO", "/")
     method = environ.get("REQUEST_METHOD", "GET")
 
-    with open(LOG_FILE, "a") as f:
-        f.write(f"REQUEST: {method} {path} at {datetime.datetime.now()}\n")
+    _log(f"REQUEST: {method} {path} at {datetime.datetime.now()}")
 
     # CORS preflight
     if method == "OPTIONS":
@@ -281,6 +313,5 @@ def application(environ, start_response):
         return error_response(start_response, "Not Found", "404 Not Found")
 
     except Exception as e:
-        with open(LOG_FILE, "a") as f:
-            f.write(f"UNHANDLED ERROR:\n{traceback.format_exc()}\n")
+        _log(f"UNHANDLED ERROR:\n{traceback.format_exc()}")
         return error_response(start_response, "Internal Server Error")

@@ -1,18 +1,9 @@
 import json
-import os
-from google import genai
-from google.genai import types
-import base64
+from services import gemini
 
-# --- Vertex AI Client using the new google-genai SDK ---
-
-def _get_client():
-    """Initialize the unified GenAI client for Vertex AI."""
-    return genai.Client(
-        vertexai=True,
-        project=os.getenv('GCP_PROJECT_ID', 'kemotives'),
-        location='us-central1'
-    )
+# Flash without thinking read the make, model and year the same as 2.5 Pro on a test listing, in ~6s instead of ~28s;
+# Pro made this the slowest step the seller waits on. Switch back here if Flash starts misreading models.
+SPEC_MODEL = 'gemini-2.5-flash'
 
 # --- Spec Extraction Logic ---
 
@@ -52,20 +43,14 @@ Return ONLY the JSON object.
 
 def extract_specs(images: list[bytes]) -> dict:
     try:
-        client = _get_client()
-        
-        contents = [SPEC_PROMPT]
-        for img_bytes in images:
-            mime_type = 'image/jpeg'
-            if img_bytes[:8] == b'\x89PNG\r\n\x1a\n':
-                mime_type = 'image/png'
-            contents.append(types.Part.from_bytes(data=img_bytes, mime_type=mime_type))
+        contents = [SPEC_PROMPT, *(gemini.image_part(img_bytes) for img_bytes in images)]
 
-        print(f"--- Gemini Spec Extraction Start ({client.vertexai=}) ---")
-        print(f"Model: gemini-2.5-pro")
-        response = client.models.generate_content(
-            model='gemini-2.5-pro',
-            contents=contents
+        print("--- Gemini Spec Extraction Start ---")
+        print(f"Model: {SPEC_MODEL}")
+        response = gemini.client().models.generate_content(
+            model=SPEC_MODEL,
+            contents=contents,
+            config=gemini.READING,
         )
         
         raw = response.text.strip()

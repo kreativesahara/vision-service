@@ -1,17 +1,19 @@
 import re
 import numpy as np
-import os
 from google.cloud import vision
-from google import genai
-from google.genai import types
+from services import gemini
 
 _vision_client = None
 
+# Longest a single Google Vision call may take (seconds)
+VISION_TIMEOUT = 15
+
 def _get_client():
-    """Lazily initialise and cache the Google Vision client."""
+    """Lazily initialise and cache the Google Vision client. REST rather than the default gRPC, which runs its own
+    background threads in every process on a host that caps the account at 100 processes + threads."""
     global _vision_client
     if _vision_client is None:
-        _vision_client = vision.ImageAnnotatorClient()
+        _vision_client = vision.ImageAnnotatorClient(transport='rest')
     return _vision_client
 
 
@@ -52,15 +54,11 @@ def _verify_plate_text_with_gemini(image_bytes: bytes, box: list) -> tuple[str, 
         _, buf = cv2.imencode('.png', crop)
         crop_bytes = buf.tobytes()
 
-        client = genai.Client(
-            vertexai=True,
-            project=os.getenv('GCP_PROJECT_ID', 'kemotives'),
-            location='us-central1'
-        )
         prompt = "Read the Kenyan license plate in this image. Return ONLY the text, e.g. 'KBS 865P'. Return nothing else."
-        response = client.models.generate_content(
+        response = gemini.client().models.generate_content(
             model='gemini-2.5-flash',
-            contents=[prompt, types.Part.from_bytes(data=crop_bytes, mime_type='image/png')]
+            contents=[prompt, gemini.image_part(crop_bytes)],
+            config=gemini.READING,
         )
         
         text = response.text.strip()
@@ -83,9 +81,12 @@ def _detect_plate(client, content_bytes: bytes) -> dict | None:
     Returns a result dict on success, None if no plate was found.
     """
     image = vision.Image(content=content_bytes)
-    response = client.text_detection(image=image)
+    response = client.text_detection(image=image, timeout=VISION_TIMEOUT)
 
-    if response.error.message or not response.text_annotations:
+    if response.error.message:
+        print(f"Vision API error: {response.error.message}")
+        return None
+    if not response.text_annotations:
         return None
 
     texts = response.text_annotations
@@ -150,7 +151,8 @@ def _detect_plate(client, content_bytes: bytes) -> dict | None:
             ) >= 0.5
         )
 
-    print(f"Plate '{prefix} {suffix}' detected — box tier result: {box is not None}")
+    # ASCII only: the server logs through an ASCII stream, and an em dash here used to throw away the detected plate
+    print(f"Plate '{prefix} {suffix}' detected - box tier result: {box is not None}")
 
     # Double check the text using Gemini 2.5 Flash on the cropped region
     if box:

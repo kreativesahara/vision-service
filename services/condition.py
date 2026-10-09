@@ -1,16 +1,5 @@
 import json
-import os
-from google import genai
-from google.genai import types
-
-# --- Vertex AI Client using the new google-genai SDK ---
-
-def _get_client():
-    return genai.Client(
-        vertexai=True,
-        project=os.getenv('GCP_PROJECT_ID', 'kemotives'),
-        location='us-central1'
-    )
+from services import gemini
 
 # --- Condition Assessment Logic ---
 
@@ -30,20 +19,12 @@ Return ONLY the JSON object.
 
 def assess_condition(image_bytes: bytes) -> dict:
     try:
-        client = _get_client()
-        
-        mime_type = 'image/jpeg'
-        if image_bytes[:8] == b'\x89PNG\r\n\x1a\n':
-            mime_type = 'image/png'
-
         print(f"--- Gemini Condition Assessment Start ---")
         print(f"Model: gemini-2.5-flash")
-        response = client.models.generate_content(
+        response = gemini.client().models.generate_content(
             model='gemini-2.5-flash',
-            contents=[
-                CONDITION_PROMPT,
-                types.Part.from_bytes(data=image_bytes, mime_type=mime_type)
-            ]
+            contents=[CONDITION_PROMPT, gemini.image_part(image_bytes)],
+            config=gemini.READING,
         )
         
         raw = response.text.strip()
