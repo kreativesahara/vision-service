@@ -20,7 +20,6 @@ import cv2
 cv2.setNumThreads(1)
 
 from models import VisionResponse, PlateResult, PlateDetection
-from services.duplicate import get_hash, check_duplicates
 from services.plate import extract_plate
 from services.specs import extract_specs
 from services.condition import assess_condition
@@ -42,16 +41,10 @@ async def analyse_vehicle(images: List[UploadFile] = File(...)):
         raise HTTPException(status_code=400, detail='No images provided')
 
     image_bytes_list = [await img.read() for img in images]
-    primary_image = image_bytes_list[0]
 
-    # 1. Perceptual hashing for duplicate check
-    new_hashes = [get_hash(b) for b in image_bytes_list]
+    # Duplicate listings are spotted by the Laravel API on submit (App\Services\DuplicateListingCheck), as in passenger_wsgi.py
 
-    # 2. Nothing to compare against: listings live in Laravel's `cars` table, which stores no image hashes
-    #    (the old lookup read a `products` table that doesn't exist)
-    existing = []
-
-    # 3. Parallel Execution of AI checks
+    # Parallel Execution of AI checks
     loop = asyncio.get_event_loop()
     executor = ThreadPoolExecutor(max_workers=4)
 
@@ -90,19 +83,17 @@ async def analyse_vehicle(images: List[UploadFile] = File(...)):
             detections=all_detections
         )
 
-    duplicate_task = loop.run_in_executor(executor, check_duplicates, new_hashes, existing)
     plate_task = get_plate_result()
     specs_task = loop.run_in_executor(executor, extract_specs, image_bytes_list)
-    condition_task = loop.run_in_executor(executor, assess_condition, primary_image)
+    condition_task = loop.run_in_executor(executor, assess_condition, image_bytes_list)
 
-    duplicate_result, plate_result, specs_result, condition_result = await asyncio.gather(
-        duplicate_task, plate_task, specs_task, condition_task
+    plate_result, specs_result, condition_result = await asyncio.gather(
+        plate_task, specs_task, condition_task
     )
 
     elapsed = int((time.time() - start) * 1000)
 
     return VisionResponse(
-        duplicate=duplicate_result,
         plate=plate_result,
         specs=specs_result,
         condition=condition_result,

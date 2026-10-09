@@ -18,6 +18,11 @@ VALID_CONDITIONS = [
     'New', 'Foreign Used Unregistered', 'Foreign Used Registered',
     'Local Used', 'Reconditioned', 'Certified Pre-Owned'
 ]
+# The colours the add-listing form offers and the API accepts (kemotives-laravel App\Support\VehicleSpecs::COLOURS)
+VALID_COLOURS = [
+    'White', 'Silver', 'Grey', 'Black', 'Blue', 'Red', 'Maroon', 'Green',
+    'Brown', 'Beige', 'Gold', 'Orange', 'Yellow', 'Purple', 'Other'
+]
 
 CONFIDENCE_THRESHOLD = 0.69
 
@@ -38,6 +43,7 @@ Extract details and return ONLY valid JSON:
   "colour":         {"value": "White",                     "confidence": 0.99},
   "trim":           {"value": "G",                         "confidence": 0.50}
 }
+colour is the body colour, one of: """ + ', '.join(VALID_COLOURS) + """ (pearl white is White, gunmetal is Grey).
 Return ONLY the JSON object.
 """
 
@@ -96,7 +102,12 @@ def extract_specs(images: list[bytes]) -> dict:
             if value is None:
                 continue
 
-            if field in ['colour', 'trim']:
+            if field == 'colour':
+                # The form fills it in only when it's confident enough; a colour off the list ("Pearl") isn't used
+                result['colour'] = next((c for c in VALID_COLOURS if c.lower() == str(value).strip().lower()), None)
+                continue
+
+            if field == 'trim':
                 result[field] = value
                 continue
 

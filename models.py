@@ -2,12 +2,6 @@
 from pydantic import BaseModel
 from typing import Optional, List
 
-class DuplicateResult(BaseModel):
-    is_duplicate: bool
-    duplicate_listing_id: Optional[str]
-    confidence: float
-    hashes: List[str]
-
 class PlateDetection(BaseModel):
     full_plate: Optional[str] = None
     public_prefix: Optional[str] = None
@@ -35,7 +29,7 @@ class SpecResult(BaseModel):
     condition: Optional[str]        # e.g. "Foreign Used Unregistered"
 
     # --- Advisory / display fields ---
-    colour: Optional[str]           # e.g. "Pearl White" (not in DB, shown in UI)
+    colour: Optional[str]           # one of VALID_COLOURS in services/specs.py, e.g. "White" (cars.colour)
     trim: Optional[str]             # e.g. "X Grade" (not in DB, advisory only)
 
     # --- Vision metadata ---
@@ -51,7 +45,6 @@ class ConditionResult(BaseModel):
     notes: Optional[str]
 
 class VisionResponse(BaseModel):
-    duplicate: DuplicateResult
     plate: PlateResult
     specs: SpecResult
     condition: ConditionResult

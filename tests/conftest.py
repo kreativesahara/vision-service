@@ -31,7 +31,7 @@ def no_google(monkeypatch):
 
 @pytest.fixture
 def make_jpeg():
-    """Real image bytes, so hashing and OpenCV decoding behave as they do on uploaded photos."""
+    """Real image bytes, so OpenCV and Pillow decode them as they do uploaded photos."""
     def make(colour=(200, 30, 30), size=(120, 60)):
         buffer = io.BytesIO()
         Image.new('RGB', size, colour).save(buffer, 'JPEG')

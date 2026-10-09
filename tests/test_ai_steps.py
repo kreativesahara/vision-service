@@ -73,7 +73,7 @@ def test_specs_keep_confident_valid_fields(fake_gemini, make_jpeg):
     assert result['engineCapacity'] == '3300'
     assert result['fuelType'] is None  # not one of the form's fuel types
     assert result['transmission'] is None  # below the autofill threshold
-    assert result['colour'] == 'Red'  # colour and trim are always passed through
+    assert result['colour'] == 'Red'  # passed through for the form to judge by its confidence
     assert result['field_confidences']['transmission'] == 0.5
     assert result['autopopulate'] is True
 
@@ -81,6 +81,14 @@ def test_specs_keep_confident_valid_fields(fake_gemini, make_jpeg):
     assert request['model'] == specs.SPEC_MODEL
     assert request['config'] is gemini.READING
     assert len(request['contents']) == 3  # the prompt and one part per photo
+
+
+def test_specs_keep_only_colours_the_form_offers(fake_gemini, make_jpeg):
+    fake_gemini(json.dumps({'colour': {'value': 'silver', 'confidence': 0.9}}))
+    assert specs.extract_specs([make_jpeg()])['colour'] == 'Silver'
+
+    fake_gemini(json.dumps({'colour': {'value': 'Pearl', 'confidence': 0.9}}))
+    assert specs.extract_specs([make_jpeg()])['colour'] is None
 
 
 def test_specs_fall_back_to_an_empty_result_on_a_bad_reply(fake_gemini, make_jpeg):
@@ -108,15 +116,17 @@ def test_condition_parses_the_assessment(fake_gemini, make_jpeg):
     model = fake_gemini('```json\n{"grade": "good", "score": 75, "damage_flags": ["yellowed headlights"], '
                         '"interior_condition": "good", "notes": "Well kept."}\n```')
 
-    result = condition.assess_condition(make_jpeg())
+    result = condition.assess_condition([make_jpeg(), make_jpeg((0, 0, 200)), make_jpeg((90, 90, 90))])
 
     assert (result['grade'], result['score'], result['damage_flags']) == ('good', 75, ['yellowed headlights'])
-    assert model.requests[0]['config'] is gemini.READING
+    request = model.requests[0]
+    assert request['config'] is gemini.READING
+    assert len(request['contents']) == 4  # the prompt and every photo, so the inside of the car counts
 
 
 def test_condition_reports_unknown_when_gemini_fails(fake_gemini, make_jpeg):
     fake_gemini(TimeoutError('deadline exceeded'))
 
-    result = condition.assess_condition(make_jpeg())
+    result = condition.assess_condition([make_jpeg()])
 
     assert (result['grade'], result['score']) == ('unknown', 0)

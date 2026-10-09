@@ -52,7 +52,6 @@ try:
     import cv2
     cv2.setNumThreads(1)
 
-    from services.duplicate import get_hash, check_duplicates
     from services.plate import extract_plate
     from services.specs import extract_specs
     from services.condition import assess_condition
@@ -220,19 +219,13 @@ def handle_analyse(environ, start_response):
     if not image_bytes_list:
         return error_response(start_response, "No images provided", "400 Bad Request")
 
-    primary_image = image_bytes_list[0]
+    # Duplicate listings are spotted by the Laravel API when the listing is submitted (plate and photo fingerprints,
+    # App\Services\DuplicateListingCheck): it knows the seller and the live listings, which this service doesn't.
 
-    # 1. Hashing
-    new_hashes = [get_hash(b) for b in image_bytes_list]
-
-    # 2. Duplicate check. Listings live in Laravel's `cars` table, which stores no image hashes, so there is nothing
-    #    to compare against here; the old lookup read a `products` table that doesn't exist and never matched.
-    duplicate_result = check_duplicates(new_hashes, [])
-
-    # 3. Run analysis, slowest steps first so they start straight away. Plates are read on every image so each
-    #    visible plate can be blurred.
+    # Run analysis, slowest steps first so they start straight away. Condition looks at every photo, so the inside of
+    # the car counts when the seller photographed it; plates are read on every image so each visible plate is blurred.
     tasks = {
-        "condition": (assess_condition, (primary_image,)),
+        "condition": (assess_condition, (image_bytes_list,)),
         "specs": (extract_specs, (image_bytes_list,)),
     }
     tasks.update({("plate", idx): (extract_plate, (b,)) for idx, b in enumerate(image_bytes_list)})
@@ -281,7 +274,6 @@ def handle_analyse(environ, start_response):
         return obj
 
     response_data = to_serializable({
-        "duplicate": duplicate_result,
         "plate": plate_result,
         "specs": specs_result,
         "condition": condition_result,

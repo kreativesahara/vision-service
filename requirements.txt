@@ -2,7 +2,6 @@ fastapi
 uvicorn
 python-multipart
 Pillow
-imagehash
 opencv-python-headless
 google-generativeai
 google-genai

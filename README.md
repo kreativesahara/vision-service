@@ -6,29 +6,20 @@ This document provides a comprehensive overview of how **AI and Image Processing
 
 ## 1. High-Level Architecture & Orchestration
 
-When vehicle images are submitted to the service (via the FastAPI endpoint `POST /analyse` in [`main.py`](./main.py#L32-L125) or the WSGI handler in [`passenger_wsgi.py`](./passenger_wsgi.py#L150-L253)), the system orchestrates four distinct inspection pipelines.
+When vehicle images are submitted to the service (via the FastAPI endpoint `POST /analyse` in [`main.py`](./main.py#L32-L125) or the WSGI handler in [`passenger_wsgi.py`](./passenger_wsgi.py#L150-L253)), the system orchestrates three inspection pipelines.
 
 To achieve high throughput and low latency, the tasks are dispatched in parallel using Python's `asyncio.gather` and a `ThreadPoolExecutor` (configured with 4 workers):
-1. **Duplicate Detection** (runs across all uploaded images)
-2. **License Plate Recognition & Masking** (runs across all uploaded images)
-3. **Vehicle Specification Extraction** (runs across all uploaded images collectively)
-4. **Condition & Damage Assessment** (runs on the primary image)
+1. **License Plate Recognition & Masking** (runs across all uploaded images)
+2. **Vehicle Specification Extraction** (runs across all uploaded images collectively)
+3. **Condition & Damage Assessment** (runs across all uploaded images collectively, so interior photos count)
+
+Duplicate listings are no longer checked here. The Laravel API spots them when a listing is submitted (same registration, or two or more of the same photos; `App\Services\DuplicateListingCheck` in `kemotives-laravel`), because it knows the seller and the live listings and this public endpoint does not.
 
 ---
 
-## 2. The 4 Pillars of AI & Image Processing
+## 2. The 3 Pillars of AI & Image Processing
 
-### A. Perceptual Hashing & Duplicate Detection ([`services/duplicate.py`](./services/duplicate.py))
-
-Instead of relying on heavy deep learning embeddings for duplicate checking, the codebase uses **Classical Computer Vision (Perceptual Hashing)** via `Pillow` and `imagehash` for fast, deterministic similarity searching:
-* **Algorithm**: Each image is converted to RGB and evaluated using a combined hash: **Average Hash (`ahash`)** and **Difference Hash (`dhash`)** at a 16x16 resolution.
-* **Matching**: Hashes are stored as `ahash:dhash` strings in Supabase. When a new listing is submitted, the system computes the Hamming distance between the new image hashes and stored listing hashes.
-* **Thresholding**: A Hamming distance threshold of `8` (`DUPLICATE_THRESHOLD`) is used. A distance $\le 8$ flags the image as a duplicate and calculates a linear confidence score:
-  $$\text{Confidence} = 1 - \left(\frac{\text{Distance}}{8}\right)$$
-
----
-
-### B. Hybrid License Plate Recognition & Categorization ([`services/plate.py`](./services/plate.py))
+### A. Hybrid License Plate Recognition & Categorization ([`services/plate.py`](./services/plate.py))
 
 License plate detection uses a **3-stage Hybrid Pipeline** combining classical image processing, optical character recognition (OCR), and Vision LLMs:
 
@@ -47,7 +38,7 @@ License plate detection uses a **3-stage Hybrid Pipeline** combining classical i
 
 ---
 
-### C. Multimodal Specification Extraction ([`services/specs.py`](./services/specs.py))
+### B. Multimodal Specification Extraction ([`services/specs.py`](./services/specs.py))
 
 To auto-populate listing details for sellers, the service uses high-reasoning multimodal AI (**Gemini 2.5 Pro** via Vertex AI):
 * **Multi-Image Ingestion**: Passes all uploaded vehicle photos (supporting JPEG and PNG byte detection) in a single prompt context so the model can inspect multiple angles of the vehicle simultaneously.
@@ -59,11 +50,12 @@ To auto-populate listing details for sellers, the service uses high-reasoning mu
 
 ---
 
-### D. Condition & Damage Assessment ([`services/condition.py`](./services/condition.py))
+### C. Condition & Damage Assessment ([`services/condition.py`](./services/condition.py))
 
 For rapid automated grading, the service evaluates the vehicle's physical condition using **Gemini 2.5 Flash**:
-* Analyzes the primary vehicle image to return a normalized condition report.
-* Outputs an overall `grade` (`excellent`, `good`, `fair`, or `poor`), a numerical quality `score` (`0-100`), a list of specific `damage_flags` (e.g., `"minor scratch on rear bumper"`), and inspector notes.
+* Analyzes every photo of the listing together, so photos of the inside count towards `interior_condition` (null when none shows the inside).
+* Outputs an overall `grade` (`excellent`, `good`, `fair`, or `poor`), a numerical quality `score` (`0-100`), a list of specific `damage_flags` (e.g., `"minor scratch on rear bumper"`), and notes for buyers about the car (never about the photos). The marketplace saves these with the listing.
+* If Gemini fails, the grade comes back as `unknown` with score `0`; the add-listing form doesn't save that, and the admin panel's "Needs a look" page lists the listing as not analysed.
 
 ---
 

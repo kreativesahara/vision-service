@@ -1,6 +1,6 @@
 # Vision Service: Running & Testing Guide
 
-This guide provides a step-by-step procedure to run and test the Vehicle Vision Microservice, which handles AI-powered spec extraction, license plate recognition, and duplicate detection.
+This guide provides a step-by-step procedure to run and test the Vehicle Vision Microservice, which handles AI-powered spec extraction, license plate recognition, and condition assessment.
 
 ---
 

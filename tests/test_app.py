@@ -6,7 +6,6 @@ import threading
 import pytest
 
 import passenger_wsgi as app
-from services.duplicate import check_duplicates, get_hash
 
 PLATE_BOX = [{'x': 10, 'y': 10}, {'x': 95, 'y': 10}, {'x': 95, 'y': 30}, {'x': 10, 'y': 30}]
 
@@ -54,7 +53,7 @@ def photos(monkeypatch, make_jpeg):
     }
     monkeypatch.setattr(app, 'extract_plate', lambda image: readings.get(image, {}))
     monkeypatch.setattr(app, 'extract_specs', lambda images: {'make': 'Lexus', 'field_confidences': {'make': 0.99}})
-    monkeypatch.setattr(app, 'assess_condition', lambda image: {'grade': 'good', 'score': 75})
+    monkeypatch.setattr(app, 'assess_condition', lambda images: {'grade': 'good', 'score': len(images)})
     return images
 
 
@@ -65,15 +64,14 @@ def test_analyse_returns_everything_the_add_listing_form_reads(photos):
 
     assert status == '200 OK'
     assert headers['Access-Control-Allow-Origin'] == '*'
-    assert set(data) == {'duplicate', 'plate', 'specs', 'condition', 'processing_time_ms'}
+    # No duplicate check here any more: the Laravel API does it on submit
+    assert set(data) == {'plate', 'specs', 'condition', 'processing_time_ms'}
     assert (data['plate']['full_plate'], data['plate']['public_prefix'], data['plate']['hidden_suffix']) == \
         ('KBX 737U', 'KBX', '737U')
     assert [(d['image_index'], d['bounding_box']) for d in data['plate']['detections']] == \
         [(1, PLATE_BOX), (2, PLATE_BOX)]  # the form blurs every boxed plate
     assert data['specs']['make'] == 'Lexus'
-    assert data['condition']['grade'] == 'good'
-    assert data['duplicate']['is_duplicate'] is False
-    assert len(data['duplicate']['hashes']) == 3
+    assert data['condition'] == {'grade': 'good', 'score': 3}  # judged from all three photos
 
 
 def test_a_failing_step_does_not_fail_the_analysis(monkeypatch, photos, log_to_tmp):
@@ -182,14 +180,6 @@ def test_a_step_that_raises_comes_back_as_none():
 
 
 # ── Supporting pieces ─────────────────────────────────────────
-
-def test_photo_hashes_match_for_the_same_photo(make_jpeg):
-    photo = make_jpeg((10, 120, 200), size=(320, 240))
-    stored = [{'id': 146, 'image_hashes': [get_hash(photo)]}]
-
-    assert check_duplicates([get_hash(photo)], stored)['duplicate_listing_id'] == '146'
-    assert check_duplicates([get_hash(photo)], [])['is_duplicate'] is False
-
 
 def test_local_dev_app_exposes_the_same_routes():
     import main
