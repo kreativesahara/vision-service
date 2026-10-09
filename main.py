@@ -1,14 +1,24 @@
+import os
+
+# Native thread pools default to one thread per CPU core (96 on the server); cap them before numpy loads,
+# as passenger_wsgi.py does in production
+for _var in ('OPENBLAS_NUM_THREADS', 'MKL_NUM_THREADS', 'OMP_NUM_THREADS', 'VECLIB_MAXIMUM_THREADS', 'NUMEXPR_NUM_THREADS'):
+    os.environ.setdefault(_var, '1')
+
 import time
 import asyncio
 from fastapi import FastAPI, File, UploadFile, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from typing import List
 import httpx
-import os
 from concurrent.futures import ThreadPoolExecutor
 from dotenv import load_dotenv
 
 load_dotenv()
+
+# OpenCV ignores the variables above and needs its own cap
+import cv2
+cv2.setNumThreads(1)
 
 from models import VisionResponse, PlateResult, PlateDetection
 from services.duplicate import get_hash, check_duplicates

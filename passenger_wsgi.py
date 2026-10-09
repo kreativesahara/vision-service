@@ -33,6 +33,11 @@ try:
     with open(LOG_FILE, "a") as f:
         f.write("Loading services...\n")
 
+    # OpenCV ignores the thread variables above and starts one thread per CPU core (96 on the server) on its
+    # first parallel call. The hosting account allows 100 processes + threads in total, so that starves PHP (503s).
+    import cv2
+    cv2.setNumThreads(1)
+
     from services.duplicate import get_hash, check_duplicates
     from services.plate import extract_plate
     from services.specs import extract_specs
