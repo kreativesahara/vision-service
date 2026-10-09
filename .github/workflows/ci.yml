@@ -1,0 +1,72 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+# Read-only token: this workflow only checks code. It needs no secrets: the tests never call Google.
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  credentials:
+    name: No credentials in the repo
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+
+      # This repo is public, and its history already exposed a .env file and a Google service-account key
+      - name: Fail if credential files or keys are tracked
+        run: |
+          status=0
+          files=$(git ls-files | grep -E '(^|/)\.env(\.local|\.production)?$|\.(pem|p12|pfx|key)$|-[0-9a-f]{12}\.json$' || true)
+          if [ -n "$files" ]; then
+            echo "::error::Credential files are tracked. Remove them with git rm --cached and rotate what they hold:"
+            echo "$files"
+            status=1
+          fi
+          keys=$(git grep -lE 'BEGIN [A-Z ]*PRIVATE KEY|"type": *"service_account"|AIza[0-9A-Za-z_-]{35}|(^|[^A-Za-z0-9])sk-[A-Za-z0-9_-]{20,}|eyJhbGciOi[A-Za-z0-9_-]{20,}' || true)
+          if [ -n "$keys" ]; then
+            echo "::error::These files contain what looks like a private key, API key or token:"
+            echo "$keys"
+            status=1
+          fi
+          exit $status
+
+  test:
+    name: Tests (Python 3.13, as on the server)
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+
+      - name: Setup Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: '3.13'
+          cache: pip
+          cache-dependency-path: requirements*.txt
+
+      - name: Install dependencies
+        run: python -m pip install -r requirements-dev.txt
+
+      # Syntax errors and undefined names only, e.g. an import removed while a file still uses it
+      - name: Lint for bugs
+        run: ruff check --select E9,F63,F7,F82 --output-format=github .
+
+      - name: Run tests
+        run: python -m pytest

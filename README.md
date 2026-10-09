@@ -74,3 +74,17 @@ For rapid automated grading, the service evaluates the vehicle's physical condit
   * **Gemini 2.5 Pro** is selectively reserved for *Specification Extraction* where deep visual reasoning (distinguishing car trims, sub-models, and reading badges across multiple angles) is required.
   * **Gemini 2.5 Flash** is used for *Condition Assessment* and *Plate Verification*, where high speed, lower latency, and cost-efficiency are prioritized over complex reasoning.
 * **Unified SDK Migration**: The codebase uses the modern, unified `google-genai` SDK (`from google import genai`), connecting directly to Google Cloud Vertex AI backend (`vertexai=True`, `location='us-central1'`).
+
+---
+
+## 4. Tests and CI
+
+The suite in [`tests/`](./tests) runs offline: every Google client is replaced by a fake, so it needs no credentials and costs nothing. It includes regression tests for the 2026-10-09 production bugs (OpenCV's thread per core, the ASCII log stream, the shared Gemini client).
+
+```bash
+pip install -r requirements-dev.txt
+pytest                                      # tests/ only; the test_*.py files in the root are manual scripts
+ruff check --select E9,F63,F7,F82 .         # syntax errors and undefined names
+```
+
+[`.github/workflows/ci.yml`](./.github/workflows/ci.yml) runs the same checks on Python 3.13 (the server's version) for every push and pull request to `main`. It also fails if a credential file or key is committed.
