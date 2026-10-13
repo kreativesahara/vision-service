@@ -11,7 +11,7 @@ When vehicle images are submitted to the service (via the FastAPI endpoint `POST
 To achieve high throughput and low latency, the tasks are dispatched in parallel using Python's `asyncio.gather` and a `ThreadPoolExecutor` (configured with 4 workers):
 1. **License Plate Recognition & Masking** (runs across all uploaded images)
 2. **Vehicle Specification Extraction** (runs across all uploaded images collectively)
-3. **Condition & Damage Assessment** (runs across all uploaded images collectively, so interior photos count)
+3. **Condition & Damage Assessment** (runs on the first three images together, so an interior photo among them counts)
 
 Duplicate listings are no longer checked here. The Laravel API spots them when a listing is submitted (same registration, or two or more of the same photos; `App\Services\DuplicateListingCheck` in `kemotives-laravel`), because it knows the seller and the live listings and this public endpoint does not.
 
@@ -53,9 +53,9 @@ To auto-populate listing details for sellers, the service uses high-reasoning mu
 ### C. Condition & Damage Assessment ([`services/condition.py`](./services/condition.py))
 
 For rapid automated grading, the service evaluates the vehicle's physical condition using **Gemini 2.5 Flash**:
-* Analyzes every photo of the listing together, so photos of the inside count towards `interior_condition` (null when none shows the inside).
+* Analyzes the first three photos of the listing together, so a photo of the inside among them counts towards `interior_condition` (null when none shows the inside).
 * Outputs an overall `grade` (`excellent`, `good`, `fair`, or `poor`), a numerical quality `score` (`0-100`), a list of specific `damage_flags` (e.g., `"minor scratch on rear bumper"`), and notes for buyers about the car (never about the photos). The marketplace saves these with the listing.
-* If Gemini fails, the grade comes back as `unknown` with score `0`; the add-listing form doesn't save that, and the admin panel's "Needs a look" page lists the listing as not analysed.
+* If Gemini fails, the grade comes back as `unknown` with score `0`; the add-listing form doesn't save that, and the admin panel's "Listing checks" page lists the listing as not analysed.
 
 ---
 

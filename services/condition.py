@@ -3,11 +3,11 @@ from services import gemini
 
 # --- Condition Assessment Logic ---
 
-# Sent every photo of the listing, not just the first, so the inside of the car is judged when the seller
-# photographed it. The notes are saved with the listing and read by buyers, so they talk about the car.
+# Sent several photos of the listing (passenger_wsgi.py sends the first three), not just one, so an inside shot
+# among them is judged. The notes are saved with the listing and read by buyers, so they talk about the car.
 CONDITION_PROMPT = """
-You are a certified vehicle condition inspector. These are all the photos a seller took of one car for a
-Kenyan vehicle marketplace: the outside, and often the inside. Assess the car from all of them together and
+You are a certified vehicle condition inspector. These are photos a seller took of one car for a Kenyan
+vehicle marketplace: the outside, and sometimes the inside. Assess the car from all of them together and
 return ONLY valid JSON:
 {
   "grade": "good",

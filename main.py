@@ -85,7 +85,7 @@ async def analyse_vehicle(images: List[UploadFile] = File(...)):
 
     plate_task = get_plate_result()
     specs_task = loop.run_in_executor(executor, extract_specs, image_bytes_list)
-    condition_task = loop.run_in_executor(executor, assess_condition, image_bytes_list)
+    condition_task = loop.run_in_executor(executor, assess_condition, image_bytes_list[:3])  # as passenger_wsgi.py
 
     plate_result, specs_result, condition_result = await asyncio.gather(
         plate_task, specs_task, condition_task

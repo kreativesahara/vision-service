@@ -222,8 +222,8 @@ def handle_analyse(environ, start_response):
     # Duplicate listings are spotted by the Laravel API when the listing is submitted (plate and photo fingerprints,
     # App\Services\DuplicateListingCheck): it knows the seller and the live listings, which this service doesn't.
 
-    # Run analysis, slowest steps first so they start straight away. Condition looks at every photo, so the inside of
-    # the car counts when the seller photographed it; plates are read on every image so each visible plate is blurred.
+    # Run analysis, slowest steps first so they start straight away. Condition looks at the first three photos, so an
+    # inside shot among them counts; plates are read on every image so each visible plate is blurred.
     tasks = {
         "condition": (assess_condition, (image_bytes_list[:3],)),
         "specs": (extract_specs, (image_bytes_list,)),
