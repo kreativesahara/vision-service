@@ -35,7 +35,35 @@ def _log(message):
         f.write(message + "\n")
 
 
-_log(f"\n--- STARTUP at {datetime.datetime.now()} ---")
+def deployed_commit(app_dir=APP_DIR):
+    """The short git commit this copy of the app was deployed at, or None. Read from .git directly: deploys are a
+    `git pull` on the server, where running git from the app isn't an option. Shown by GET /health, so anyone can
+    check which code the server runs without a shell."""
+    git_dir = os.path.join(app_dir, ".git")
+    try:
+        with open(os.path.join(git_dir, "HEAD"), encoding="utf-8") as f:
+            head = f.read().strip()
+        if not head.startswith("ref: "):
+            return head[:7] or None  # a detached checkout
+        ref = head[len("ref: "):]
+        ref_file = os.path.join(git_dir, *ref.split("/"))
+        if os.path.exists(ref_file):
+            with open(ref_file, encoding="utf-8") as f:
+                return f.read().strip()[:7] or None
+        # After `git gc` the branch tip lives in packed-refs instead
+        with open(os.path.join(git_dir, "packed-refs"), encoding="utf-8") as f:
+            for line in f:
+                parts = line.split()
+                if len(parts) == 2 and parts[1] == ref:
+                    return parts[0][:7]
+    except OSError:
+        pass
+    return None
+
+
+DEPLOYED_COMMIT = deployed_commit()
+
+_log(f"\n--- STARTUP at {datetime.datetime.now()} (commit {DEPLOYED_COMMIT or 'unknown'}) ---")
 
 # Import services
 services_loaded = False
@@ -52,7 +80,7 @@ try:
     import cv2
     cv2.setNumThreads(1)
 
-    from services.plate import extract_plate
+    from services.plate import SharedPlateChecks, extract_plate
     from services.specs import extract_specs
     from services.condition import assess_condition
 
@@ -154,7 +182,8 @@ def parse_multipart(environ):
 
 # ── Route: GET /health ─────────────────────────────────────────
 def handle_health(environ, start_response):
-    return json_response(start_response, {"status": "ok"})
+    # The deployed commit: compare it with `git log -1` in the repo to see whether the server is up to date
+    return json_response(start_response, {"status": "ok", "commit": DEPLOYED_COMMIT})
 
 
 # ── Parallel analysis steps ────────────────────────────────────
@@ -228,7 +257,9 @@ def handle_analyse(environ, start_response):
         "condition": (assess_condition, (image_bytes_list[:3],)),
         "specs": (extract_specs, (image_bytes_list,)),
     }
-    tasks.update({("plate", idx): (extract_plate, (b,)) for idx, b in enumerate(image_bytes_list)})
+    # One Gemini check per plate, shared by every photo it shows in (services/plate.py SharedPlateChecks)
+    shared_plate_checks = SharedPlateChecks()
+    tasks.update({("plate", idx): (extract_plate, (b, shared_plate_checks)) for idx, b in enumerate(image_bytes_list)})
     results = run_concurrently(tasks)
 
     # Plate detection

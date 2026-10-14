@@ -32,15 +32,17 @@ License plate detection uses a **3-stage Hybrid Pipeline** combining classical i
 3. **3-Tier Bounding Box Localization & Gemini Verification**:
    * Locates the plate's bounding polygon using 3 fallback heuristics (Strict word match $\rightarrow$ Substring/Bigram overlap $\rightarrow$ 50% character overlap).
    * **LLM Verification**: Once the bounding box is found, OpenCV crops the plate region (with a 10% padding margin) and sends the cropped image to **Gemini 2.5 Flash** (via the Google GenAI Vertex AI client) with a strict prompt to double-check and confirm the exact plate characters.
+   * **Once per plate**: a car's plate usually shows in several photos. `SharedPlateChecks` (one per analysis request) lets the first photo run the Gemini check and the others reuse its answer, waiting while it runs instead of repeating it; every photo still gets its own blur box. If that check fails, or takes longer than `SHARED_CHECK_WAIT` (45 s), a photo checks its own crop. A listing with its plate in 4 photos makes 1 Gemini call instead of 4.
 4. **Privacy & Categorization**:
-   * Splitting the plate into a `public_prefix` (e.g., `KBB`) and a `hidden_suffix` (e.g., `675B`) allows the marketplace to show public teasers while gating full registration numbers behind paywalls or user verification.
+   * Splitting the plate into a `public_prefix` (e.g., `KBB`) and a `hidden_suffix` (e.g., `675B`) lets the marketplace show the prefix while keeping the rest private.
+   * **Logs never hold the private part**: plates are logged masked (`Plate 'KBX ****' detected`), through `mask_plate()`. The server keeps its logs, and a plate is personal data. A test fails if a detected plate's suffix reaches the log.
    * Categorizes the plate into historical/digital dealer series (`KD`) or standard national series.
 
 ---
 
 ### B. Multimodal Specification Extraction ([`services/specs.py`](./services/specs.py))
 
-To auto-populate listing details for sellers, the service uses high-reasoning multimodal AI (**Gemini 2.5 Pro** via Vertex AI):
+To auto-populate listing details for sellers, the service uses multimodal AI (**Gemini 2.5 Flash** via Vertex AI; `SPEC_MODEL` in `services/specs.py`):
 * **Multi-Image Ingestion**: Passes all uploaded vehicle photos (supporting JPEG and PNG byte detection) in a single prompt context so the model can inspect multiple angles of the vehicle simultaneously.
 * **Prompt Engineering & Structured JSON**: Instructs the model to act as a professional Kenyan vehicle inspector, analyzing body shape, badges, and trim levels to return a structured JSON object containing exact attributes and individual confidence scores.
 * **Validation & Thresholding**:
@@ -62,9 +64,8 @@ For rapid automated grading, the service evaluates the vehicle's physical condit
 ## 3. Key Technical & Infrastructure Optimizations
 
 * **Thread Contention Management**: In [`passenger_wsgi.py:L11-L15`](./passenger_wsgi.py#L11-L15), environment variables (`OPENBLAS_NUM_THREADS`, `MKL_NUM_THREADS`, `OMP_NUM_THREADS`, `VECLIB_MAXIMUM_THREADS`, `NUMEXPR_NUM_THREADS`) are explicitly set to `"1"` before importing OpenCV or NumPy. This prevents CPU thread oversubscription and deadlocks when running NumPy/OpenCV inside WSGI web server workers and Python thread pools.
-* **Model Tiering (Cost vs. Performance)**:
-  * **Gemini 2.5 Pro** is selectively reserved for *Specification Extraction* where deep visual reasoning (distinguishing car trims, sub-models, and reading badges across multiple angles) is required.
-  * **Gemini 2.5 Flash** is used for *Condition Assessment* and *Plate Verification*, where high speed, lower latency, and cost-efficiency are prioritized over complex reasoning.
+* **Model choice**: every step uses **Gemini 2.5 Flash** with thinking off and temperature 0 (`services/gemini.py`). Specs used Gemini 2.5 Pro until 2026-10-09; on the test listing Flash read the same make, model and engine in 3–11 s instead of ~28 s. To switch back, set `SPEC_MODEL` in `services/specs.py`.
+* **The add-listing form decides what to trust**: fields at 0.69 confidence or more are filled in, and those under 0.85 are marked "please check". The year is always marked "please check", whatever its confidence: a model looks the same across the years it was made, so the photos can't settle it (`ALWAYS_CONFIRM` in `kemotives-nextjs/src/components/forms/addProduct.jsx`).
 * **Unified SDK Migration**: The codebase uses the modern, unified `google-genai` SDK (`from google import genai`), connecting directly to Google Cloud Vertex AI backend (`vertexai=True`, `location='us-central1'`).
 
 ---
@@ -80,3 +81,16 @@ ruff check --select E9,F63,F7,F82 .         # syntax errors and undefined names
 ```
 
 [`.github/workflows/ci.yml`](./.github/workflows/ci.yml) runs the same checks on Python 3.13 (the server's version) for every push and pull request to `main`. It also fails if a credential file or key is committed.
+
+---
+
+## 5. Which code is the server running?
+
+Deploys are a manual `git pull` on the server (see `vision_service_production_fix.md` §7 in the docs repo), so it can fall behind `main`. `GET /health` reports the commit the running app was deployed at, read from the checkout's `.git` when the app starts:
+
+```bash
+curl -s https://vision.kemotives.co.ke/health    # {"status": "ok", "commit": "6a68446"}
+git log -1 --format=%h                           # in this repo: the same commit means the server is up to date
+```
+
+`"commit": null` means the app couldn't read `.git` (for example, files copied in by hand rather than pulled). The startup line in `~/vision/wsgi_error.log` shows the commit too. The app picks up a new commit only when it restarts, so check after the restart step of the deploy.

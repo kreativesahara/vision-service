@@ -51,7 +51,7 @@ def photos(monkeypatch, make_jpeg):
         images[1]: {'full_plate': 'KBX 737U', 'public_prefix': 'KBX', 'hidden_suffix': '737U', 'bounding_box': PLATE_BOX},
         images[2]: {'full_plate': None, 'bounding_box': PLATE_BOX},
     }
-    monkeypatch.setattr(app, 'extract_plate', lambda image: readings.get(image, {}))
+    monkeypatch.setattr(app, 'extract_plate', lambda image, shared_checks=None: readings.get(image, {}))
     monkeypatch.setattr(app, 'extract_specs', lambda images: {'make': 'Lexus', 'field_confidences': {'make': 0.99}})
     monkeypatch.setattr(app, 'assess_condition', lambda images: {'grade': 'good', 'score': len(images)})
     return images
@@ -96,7 +96,7 @@ def test_analyse_rejects_requests_without_photos():
 
 
 def test_health_preflight_and_unknown_routes():
-    assert call('/health')[::2] == ('200 OK', {'status': 'ok'})
+    assert call('/health')[::2] == ('200 OK', {'status': 'ok', 'commit': app.DEPLOYED_COMMIT})
 
     status, headers, body = call('/analyse', 'OPTIONS')
     assert status == '204 No Content' and body is None
@@ -185,3 +185,20 @@ def test_local_dev_app_exposes_the_same_routes():
     import main
 
     assert {'/analyse', '/health'} <= {route.path for route in main.app.routes}
+
+
+# ── Deployed version ──────────────────────────────────────────
+
+def test_health_reports_the_deployed_commit(tmp_path):
+    git = tmp_path / '.git'
+    (git / 'refs' / 'heads').mkdir(parents=True)
+    (git / 'HEAD').write_text('ref: refs/heads/main\n')
+    (git / 'refs' / 'heads' / 'main').write_text('6a68446f1c2d3e4b5a6978\n')
+    assert app.deployed_commit(str(tmp_path)) == '6a68446'
+
+    # After `git gc` the branch tip is only in packed-refs
+    (git / 'refs' / 'heads' / 'main').unlink()
+    (git / 'packed-refs').write_text('# pack-refs with: peeled\n4c0a47f9a8f3d20ca0ab512b9dddca67ccf6989b refs/heads/main\n')
+    assert app.deployed_commit(str(tmp_path)) == '4c0a47f'
+
+    assert app.deployed_commit(str(tmp_path / 'not-a-checkout')) is None

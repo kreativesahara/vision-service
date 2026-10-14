@@ -1,4 +1,5 @@
 import io
+import threading
 import sys
 from pathlib import Path
 
@@ -97,3 +98,62 @@ def test_categorises_plate_formats():
     assert plate.categorize_kenyan_plate('KD 1234') == 'Standard / Historical KD Dealer Plate'
     assert plate.categorize_kenyan_plate('KDK 123A') == 'New Generation / KDK Digital Series Dealer Plate'
     assert plate.categorize_kenyan_plate('') == 'Invalid plate'
+
+
+def test_logs_never_hold_the_private_end_of_a_plate(fake_vision, fake_gemini, make_jpeg, capsys):
+    fake_vision(kbx_737u())
+    fake_gemini('KBX 737U')
+
+    plate.extract_plate(make_jpeg())
+
+    out = capsys.readouterr().out
+    assert "Plate 'KBX ****' detected" in out
+    assert '737U' not in out
+    assert plate.mask_plate('KD 1234') == 'KD ****'
+    assert plate.mask_plate(None) == '-'
+
+
+def test_a_plate_in_several_photos_is_checked_by_gemini_once(fake_vision, fake_gemini, make_jpeg):
+    fake_vision(kbx_737u())
+    model = fake_gemini('KBX 787U')
+    shared = plate.SharedPlateChecks()
+
+    results = [plate.extract_plate(make_jpeg(colour), shared) for colour in [(200, 0, 0), (0, 200, 0), (0, 0, 200)]]
+
+    assert len(model.requests) == 1
+    assert [r['full_plate'] for r in results] == ['KBX 787U'] * 3  # every photo gets the checked reading
+    assert all(r['bounding_box'] for r in results)  # and its own blur box
+
+
+def test_photos_checked_at_the_same_moment_still_share_one_check():
+    shared = plate.SharedPlateChecks()
+    started = threading.Event()
+    release = threading.Event()
+    calls = []
+
+    def slow_check():
+        calls.append(1)
+        started.set()
+        release.wait(5)
+        return ('KBX 737U', 'KBX', '737U')
+
+    results = []
+    first = threading.Thread(target=lambda: results.append(shared.verify('KBX 737U', slow_check)))
+    first.start()
+    started.wait(5)
+    second = threading.Thread(target=lambda: results.append(shared.verify('KBX 737U', slow_check)))
+    second.start()
+    release.set()
+    first.join(5)
+    second.join(5)
+
+    assert len(calls) == 1
+    assert results == [('KBX 737U', 'KBX', '737U')] * 2
+
+
+def test_a_failed_shared_check_lets_the_next_photo_try_its_own():
+    shared = plate.SharedPlateChecks()
+    replies = iter([None, ('KBX 737U', 'KBX', '737U')])
+
+    assert shared.verify('KBX 737U', lambda: next(replies)) is None
+    assert shared.verify('KBX 737U', lambda: next(replies)) == ('KBX 737U', 'KBX', '737U')

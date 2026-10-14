@@ -1,4 +1,5 @@
 import re
+import threading
 import numpy as np
 from google.cloud import vision
 from services import gemini
@@ -7,6 +8,52 @@ _vision_client = None
 
 # Longest a single Google Vision call may take (seconds)
 VISION_TIMEOUT = 15
+
+# Longest a photo waits for another photo's Gemini check of the same plate before checking its own (seconds).
+# Longer than the Gemini client's own timeout (services/gemini.py), so a stuck check fails first.
+SHARED_CHECK_WAIT = 45
+
+
+def mask_plate(plate: str | None) -> str:
+    """A plate as logs may show it: the public prefix, and the private part as stars ('KBX 737U' -> 'KBX ****').
+    The marketplace never shows the end of a plate, and the server logs are kept, so they don't hold it either."""
+    if not plate:
+        return '-'
+    prefix, _, rest = str(plate).strip().partition(' ')
+    return f"{prefix} {'*' * len(rest)}" if rest else '*' * len(prefix)
+
+
+class SharedPlateChecks:
+    """Gemini's reading of each plate checked during one analysis, keyed by what Google Vision read on the photo.
+
+    A car's plate usually shows in several of its photos, and each used to get its own Gemini check of the same
+    characters. With this, the first photo checks it and the others reuse the answer: they wait while that check is
+    running rather than starting their own. If it fails, or takes longer than SHARED_CHECK_WAIT, a photo checks its
+    own crop instead. Each photo still gets its own blur box. One per analysis request; safe across its threads."""
+
+    def __init__(self):
+        self._lock = threading.Lock()
+        self._checks = {}  # Vision reading -> (Event set when the check finished, [result or None])
+
+    def verify(self, reading: str, check):
+        with self._lock:
+            entry = self._checks.get(reading)
+            first = entry is None
+            if first:
+                entry = (threading.Event(), [None])
+                self._checks[reading] = entry
+        finished, result = entry
+
+        if first:
+            try:
+                result[0] = check()
+            finally:
+                finished.set()
+            return result[0]
+
+        if finished.wait(SHARED_CHECK_WAIT) and result[0] is not None:
+            return result[0]
+        return check()
 
 def _get_client():
     """Lazily initialise and cache the Google Vision client. REST rather than the default gRPC, which runs its own
@@ -75,7 +122,7 @@ def _verify_plate_text_with_gemini(image_bytes: bytes, box: list) -> tuple[str, 
     return None
 
 
-def _detect_plate(client, content_bytes: bytes) -> dict | None:
+def _detect_plate(client, content_bytes: bytes, shared_checks: SharedPlateChecks | None = None) -> dict | None:
     """
     Run text detection and extract a Kenyan plate in KXX NNNX format.
     Returns a result dict on success, None if no plate was found.
@@ -151,12 +198,14 @@ def _detect_plate(client, content_bytes: bytes) -> dict | None:
             ) >= 0.5
         )
 
-    # ASCII only: the server logs through an ASCII stream, and an em dash here used to throw away the detected plate
-    print(f"Plate '{prefix} {suffix}' detected - box tier result: {box is not None}")
+    # ASCII only: the server logs through an ASCII stream, and an em dash here used to throw away the detected plate.
+    # Masked: the logs are kept, and the end of a plate is private.
+    print(f"Plate '{mask_plate(f'{prefix} {suffix}')}' detected - box tier result: {box is not None}")
 
-    # Double check the text using Gemini 2.5 Flash on the cropped region
+    # Double check the text using Gemini 2.5 Flash on the cropped region, once per plate per analysis
     if box:
-        gemini_result = _verify_plate_text_with_gemini(content_bytes, box)
+        check = lambda: _verify_plate_text_with_gemini(content_bytes, box)  # noqa: E731
+        gemini_result = shared_checks.verify(f"{prefix} {suffix}", check) if shared_checks else check()
         if gemini_result:
             full, g_prefix, g_suffix = gemini_result
             return {
@@ -179,10 +228,11 @@ def _detect_plate(client, content_bytes: bytes) -> dict | None:
     }
 
 
-def extract_plate(image_bytes: bytes) -> dict:
+def extract_plate(image_bytes: bytes, shared_checks: SharedPlateChecks | None = None) -> dict:
     """
     Attempt plate detection; fall back to pre-processed image on miss.
     Returns a dict with full_plate, public_prefix, hidden_suffix, confidence, bounding_box.
+    Pass the same SharedPlateChecks for every photo of one listing, so its plate is checked by Gemini once.
     """
     empty = {'full_plate': None, 'public_prefix': None, 'hidden_suffix': None,
              'confidence': 0.0, 'bounding_box': None, 'category': None}
@@ -193,7 +243,7 @@ def extract_plate(image_bytes: bytes) -> dict:
         return empty
 
     try:
-        result = _detect_plate(client, image_bytes)
+        result = _detect_plate(client, image_bytes, shared_checks)
         if result:
             return result
     except Exception as e:
@@ -201,7 +251,7 @@ def extract_plate(image_bytes: bytes) -> dict:
 
     # Fallback: contrast-enhanced grayscale
     try:
-        result = _detect_plate(client, _preprocess(image_bytes))
+        result = _detect_plate(client, _preprocess(image_bytes), shared_checks)
         return result if result else empty
     except Exception as e:
         print(f"Pre-processing fallback failed: {e}")

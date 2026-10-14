@@ -20,7 +20,7 @@ import cv2
 cv2.setNumThreads(1)
 
 from models import VisionResponse, PlateResult, PlateDetection
-from services.plate import extract_plate
+from services.plate import SharedPlateChecks, extract_plate
 from services.specs import extract_specs
 from services.condition import assess_condition
 
@@ -52,8 +52,9 @@ async def analyse_vehicle(images: List[UploadFile] = File(...)):
     async def get_plate_result():
         all_detections = []
         primary_plate = None
+        shared_plate_checks = SharedPlateChecks()  # one Gemini check per plate, as in passenger_wsgi.py
         for idx, b in enumerate(image_bytes_list):
-            res = await loop.run_in_executor(executor, extract_plate, b)
+            res = await loop.run_in_executor(executor, extract_plate, b, shared_plate_checks)
             if res.get('bounding_box') or res.get('full_plate'):
                 det = PlateDetection(
                     full_plate=res.get('full_plate'),
