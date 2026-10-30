@@ -272,8 +272,9 @@ def test_a_close_up_search_puts_the_box_on_the_plate(fake_vision, fake_gemini, m
 
     close_up = next(request for request in model.requests if kind(request) == 'close-up')
     assert Image.open(io.BytesIO(close_up['contents'][1].inline_data.data)).size == (560, 392)
-    # The close-up's box (padded as any), placed back on the photo, instead of the search's box
-    assert boxes == [[{'x': 422, 'y': 512}, {'x': 578, 'y': 512}, {'x': 578, 'y': 567}, {'x': 422, 'y': 567}]]
+    # The close-up's box, padded less than a search's (it sits on the plate), placed back on the photo instead of the
+    # search's box
+    assert boxes == [[{'x': 435, 'y': 517}, {'x': 565, 'y': 517}, {'x': 565, 'y': 562}, {'x': 435, 'y': 562}]]
 
 
 @pytest.mark.parametrize('close_up', [[], TimeoutError('deadline exceeded')], ids=['finds nothing', 'fails'])

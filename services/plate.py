@@ -50,6 +50,10 @@ OCR_DIGITS = str.maketrans('OISZ', '0152')
 # letter.
 GEMINI_BOX_PADDING = 0.2
 
+# The same for a box a close-up search found (_close_up), which sits on the plate: at GEMINI_BOX_PADDING, a seller said
+# the blur looked exaggerated (about twice the plate's area, over the badge and bumper)
+CLOSE_UP_PADDING = 0.08
+
 # A "plate" taking more of the photo than this is a misreading (a sign, the whole bumper), not a box to blur
 MAX_PLATE_AREA = 0.25
 
@@ -293,16 +297,16 @@ def _detect_plate(client, content_bytes: bytes, shared_checks: SharedPlateChecks
     }
 
 
-def _pixel_box(box_2d, width: int, height: int) -> list | None:
+def _pixel_box(box_2d, width: int, height: int, padding: float = GEMINI_BOX_PADDING) -> list | None:
     """Gemini's [ymin, xmin, ymax, xmax] on its 0-1000 grid as the four corners in pixels, the way Vision's boxes
-    come, widened by GEMINI_BOX_PADDING and kept inside the photo. None for a box that can't be a plate."""
+    come, widened by `padding` and kept inside the photo. None for a box that can't be a plate."""
     try:
         y_min, x_min, y_max, x_max = (min(max(float(v) / 1000, 0.0), 1.0) for v in box_2d)
     except (TypeError, ValueError):
         return None
     if x_max <= x_min or y_max <= y_min or (x_max - x_min) * (y_max - y_min) > MAX_PLATE_AREA:
         return None
-    pad_x, pad_y = (x_max - x_min) * GEMINI_BOX_PADDING, (y_max - y_min) * GEMINI_BOX_PADDING
+    pad_x, pad_y = (x_max - x_min) * padding, (y_max - y_min) * padding
     left, right = max(0, round((x_min - pad_x) * width)), min(width, round((x_max + pad_x) * width))
     top, bottom = max(0, round((y_min - pad_y) * height)), min(height, round((y_max + pad_y) * height))
     return [{'x': left, 'y': top}, {'x': right, 'y': top}, {'x': right, 'y': bottom}, {'x': left, 'y': bottom}]
@@ -375,16 +379,17 @@ def _close_up(img, box: list) -> list | None:
     except cv2.error as e:
         print(f"Couldn't cut a close-up for a plate search: {e}")
         return None
-    plates = _search_plates(close_up, x1 - x0, y1 - y0, CLOSE_UP_PROMPT)
+    plates = _search_plates(close_up, x1 - x0, y1 - y0, CLOSE_UP_PROMPT, CLOSE_UP_PADDING)
     if not plates:
         return None
     return [[{'x': corner['x'] + x0, 'y': corner['y'] + y0} for corner in plate['bounding_box']] for plate in plates]
 
 
-def _search_plates(image_bytes: bytes, width: int, height: int, prompt: str = LOCATE_PROMPT) -> list[dict] | None:
+def _search_plates(image_bytes: bytes, width: int, height: int, prompt: str = LOCATE_PROMPT,
+                   padding: float = GEMINI_BOX_PADDING) -> list[dict] | None:
     """One Gemini search for every number plate in a copy of a photo `width` x `height`: [{'bounding_box', 'reading'}]
-    in that photo's pixels (Gemini's boxes are relative, so a smaller copy's map onto it), reading being _parse_plate's
-    answer or None. [] when it found none; None when the search itself failed."""
+    in that photo's pixels (Gemini's boxes are relative, so a smaller copy's map onto it), widened by `padding`,
+    reading being _parse_plate's answer or None. [] when it found none; None when the search itself failed."""
     try:
         response = gemini.client().models.generate_content(
             model='gemini-2.5-flash',
@@ -400,7 +405,7 @@ def _search_plates(image_bytes: bytes, width: int, height: int, prompt: str = LO
 
     plates = []
     for item in found:
-        box = _pixel_box(item.get('box_2d'), width, height) if isinstance(item, dict) else None
+        box = _pixel_box(item.get('box_2d'), width, height, padding) if isinstance(item, dict) else None
         if box:
             plates.append({'bounding_box': box, 'reading': _parse_plate(item.get('text'))})
     return plates
