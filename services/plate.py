@@ -133,7 +133,8 @@ def _get_client():
     background threads in every process on a host that caps the account at 100 processes + threads."""
     global _vision_client
     if _vision_client is None:
-        _vision_client = vision.ImageAnnotatorClient(transport='rest')
+        # noinspection PyArgumentList
+        _vision_client = vision.ImageAnnotatorClient(transport='rest')  # type: ignore[call-arg]
     return _vision_client
 
 
