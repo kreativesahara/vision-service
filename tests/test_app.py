@@ -74,6 +74,33 @@ def test_analyse_returns_everything_the_add_listing_form_reads(photos):
     assert data['condition'] == {'grade': 'good', 'score': 3}  # judged from all three photos
 
 
+def test_analyse_never_calls_a_car_with_a_kenyan_plate_unregistered(monkeypatch, photos):
+    monkeypatch.setattr(app, 'extract_specs', lambda images: {
+        'make': 'Volkswagen', 'condition': 'Foreign Used Unregistered', 'field_confidences': {'condition': 0.8}})
+
+    data = call('/analyse', 'POST', *multipart(photos))[2]
+
+    assert data['specs']['condition'] == 'Local Used'  # the second photo shows KBX 737U
+    assert data['specs']['field_confidences']['condition'] == 0.95
+
+
+def test_analyse_sends_every_plate_box_in_a_photo_to_be_blurred(monkeypatch, make_jpeg):
+    # The car for sale, and another car's plate behind it: the form blurs both, and the reading comes once
+    other_car = [{'x': 60, 'y': 40}, {'x': 90, 'y': 40}, {'x': 90, 'y': 50}, {'x': 60, 'y': 50}]
+    monkeypatch.setattr(app, 'extract_plate', lambda image, shared_checks=None: {
+        'full_plate': 'KBX 737U', 'public_prefix': 'KBX', 'hidden_suffix': '737U',
+        'bounding_box': PLATE_BOX, 'bounding_boxes': [PLATE_BOX, other_car],
+    })
+    monkeypatch.setattr(app, 'extract_specs', lambda images: {'make': 'Lexus', 'field_confidences': {'make': 0.99}})
+    monkeypatch.setattr(app, 'assess_condition', lambda images: {'grade': 'good', 'score': 80})
+
+    data = call('/analyse', 'POST', *multipart([make_jpeg()]))[2]
+
+    assert [(d['image_index'], d['bounding_box'], d['full_plate']) for d in data['plate']['detections']] == \
+        [(0, PLATE_BOX, 'KBX 737U'), (0, other_car, None)]
+    assert data['plate']['full_plate'] == 'KBX 737U'
+
+
 def test_a_failing_step_does_not_fail_the_analysis(monkeypatch, photos, log_to_tmp):
     def broken(images):
         raise RuntimeError('Vertex AI unavailable')

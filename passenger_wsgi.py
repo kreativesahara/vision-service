@@ -81,7 +81,7 @@ try:
     cv2.setNumThreads(1)
 
     from services.plate import SharedPlateChecks, extract_plate
-    from services.specs import extract_specs
+    from services.specs import extract_specs, match_condition_to_plate
     from services.condition import assess_condition
 
     services_loaded = True
@@ -262,17 +262,22 @@ def handle_analyse(environ, start_response):
     tasks.update({("plate", idx): (extract_plate, (b, shared_plate_checks)) for idx, b in enumerate(image_bytes_list)})
     results = run_concurrently(tasks)
 
-    # Plate detection
+    # Plate detection: one detection per plate box, as the form blurs each box, so a photo can have several (another car
+    # behind). A plate read without a box still comes back, for the registration fields. The reading goes on the photo's
+    # first detection.
     all_detections = []
     primary_plate = None
     for idx in range(len(image_bytes_list)):
         res = results.get(("plate", idx)) or {}
-        if res.get("bounding_box") or res.get("full_plate"):
+        boxes = res.get("bounding_boxes") or ([res["bounding_box"]] if res.get("bounding_box") else [])
+        if not boxes and res.get("full_plate"):
+            boxes = [None]
+        for n, box in enumerate(boxes):
             det = {
-                "full_plate": res.get("full_plate"),
-                "public_prefix": res.get("public_prefix"),
-                "hidden_suffix": res.get("hidden_suffix"),
-                "bounding_box": res.get("bounding_box"),
+                "full_plate": res.get("full_plate") if n == 0 else None,
+                "public_prefix": res.get("public_prefix") if n == 0 else None,
+                "hidden_suffix": res.get("hidden_suffix") if n == 0 else None,
+                "bounding_box": box,
                 "image_index": idx,
             }
             all_detections.append(det)
@@ -287,7 +292,8 @@ def handle_analyse(environ, start_response):
         "detections": all_detections,
     }
 
-    specs_result = results.get("specs")
+    # A car with a Kenyan plate is registered, whatever the specs step guessed (services/specs.py)
+    specs_result = match_condition_to_plate(results.get("specs"), plate_result["full_plate"])
     condition_result = results.get("condition")
 
     elapsed = int((time.time() - start_time) * 1000)

@@ -3,7 +3,8 @@ from types import SimpleNamespace
 
 
 class FakeGemini:
-    """Stands in for genai.Client: answers every request with a canned reply and records the requests."""
+    """Stands in for genai.Client: answers every request with a canned reply, or with reply(request) when the reply is
+    a function, and records the requests."""
 
     def __init__(self, reply):
         self.reply = reply
@@ -12,9 +13,10 @@ class FakeGemini:
 
     def generate_content(self, **request):
         self.requests.append(request)
-        if isinstance(self.reply, Exception):
-            raise self.reply
-        return SimpleNamespace(text=self.reply)
+        reply = self.reply(request) if callable(self.reply) else self.reply
+        if isinstance(reply, Exception):
+            raise reply
+        return SimpleNamespace(text=reply)
 
 
 class FakeVision:

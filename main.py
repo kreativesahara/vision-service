@@ -21,7 +21,7 @@ cv2.setNumThreads(1)
 
 from models import VisionResponse, PlateResult, PlateDetection
 from services.plate import SharedPlateChecks, extract_plate
-from services.specs import extract_specs
+from services.specs import extract_specs, match_condition_to_plate
 from services.condition import assess_condition
 
 app = FastAPI(title='Vehicle Vision Microservice')
@@ -55,12 +55,16 @@ async def analyse_vehicle(images: List[UploadFile] = File(...)):
         shared_plate_checks = SharedPlateChecks()  # one Gemini check per plate, as in passenger_wsgi.py
         for idx, b in enumerate(image_bytes_list):
             res = await loop.run_in_executor(executor, extract_plate, b, shared_plate_checks)
-            if res.get('bounding_box') or res.get('full_plate'):
+            # One detection per plate box, the reading on the first, as passenger_wsgi.py does
+            boxes = res.get('bounding_boxes') or ([res['bounding_box']] if res.get('bounding_box') else [])
+            if not boxes and res.get('full_plate'):
+                boxes = [None]
+            for n, box in enumerate(boxes):
                 det = PlateDetection(
-                    full_plate=res.get('full_plate'),
-                    public_prefix=res.get('public_prefix'),
-                    hidden_suffix=res.get('hidden_suffix'),
-                    bounding_box=res.get('bounding_box'),
+                    full_plate=res.get('full_plate') if n == 0 else None,
+                    public_prefix=res.get('public_prefix') if n == 0 else None,
+                    hidden_suffix=res.get('hidden_suffix') if n == 0 else None,
+                    bounding_box=box,
                     image_index=idx
                 )
                 all_detections.append(det)
@@ -91,6 +95,8 @@ async def analyse_vehicle(images: List[UploadFile] = File(...)):
     plate_result, specs_result, condition_result = await asyncio.gather(
         plate_task, specs_task, condition_task
     )
+    # A car with a Kenyan plate is registered, whatever the specs step guessed (as passenger_wsgi.py)
+    specs_result = match_condition_to_plate(specs_result, plate_result.full_plate)
 
     elapsed = int((time.time() - start) * 1000)
 

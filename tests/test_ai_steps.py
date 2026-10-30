@@ -110,6 +110,34 @@ def test_specs_do_not_autofill_when_nothing_is_confident(fake_gemini, make_jpeg)
     assert result['autopopulate'] is False
 
 
+def test_a_car_with_a_kenyan_plate_is_never_unregistered():
+    # Gemini called a Golf R wearing KDP 717H "Foreign Used Unregistered"
+    for guessed in ('Foreign Used Unregistered', 'New', None):
+        result = specs.match_condition_to_plate(
+            {'condition': guessed, 'field_confidences': {'condition': 0.8}, 'autopopulate': False}, 'KDP 717H')
+        assert result['condition'] == 'Local Used'
+        assert result['field_confidences']['condition'] == specs.PLATE_CONFIDENCE
+        assert result['autopopulate'] is True
+
+
+def test_a_condition_that_fits_a_plate_is_kept():
+    for fits in ('Foreign Used Registered', 'Local Used', 'Reconditioned', 'Certified Pre-Owned'):
+        assert specs.match_condition_to_plate({'condition': fits}, 'KDP 717H')['condition'] == fits
+
+
+def test_no_plate_or_a_dealer_plate_leaves_the_condition_alone():
+    # Dealer plates go on cars that aren't registered yet
+    for plate in (None, '', 'KD 1234', 'KD 123A'):
+        assert specs.match_condition_to_plate({'condition': 'Foreign Used Unregistered'}, plate)['condition'] == \
+            'Foreign Used Unregistered'
+    assert specs.match_condition_to_plate(None, 'KDP 717H') is None  # the specs step failed
+
+
+def test_the_prompt_tells_gemini_a_plated_car_is_registered():
+    assert 'Kenyan registration plate' in specs.SPEC_PROMPT
+    assert all(condition in specs.SPEC_PROMPT for condition in specs.VALID_CONDITIONS)
+
+
 # ── Condition ─────────────────────────────────────────────────
 
 def test_condition_parses_the_assessment(fake_gemini, make_jpeg):

@@ -1,4 +1,5 @@
 import json
+import re
 from services import gemini
 
 # Flash without thinking read the make, model and year the same as 2.5 Pro on a test listing, in ~6s instead of ~28s;
@@ -26,6 +27,14 @@ VALID_COLOURS = [
 
 CONFIDENCE_THRESHOLD = 0.69
 
+# A Kenyan national plate as services/plate.py returns it: three letters, three digits, a letter ('KDP 717H'). Dealer
+# plates ('KD 1234') go on cars that aren't registered yet, so they don't count.
+NATIONAL_PLATE = re.compile(r'^K[A-Z]{2} \d{3}[A-Z]$')
+# Conditions a registered car can't have
+UNREGISTERED_CONDITIONS = ('New', 'Foreign Used Unregistered')
+# How sure the condition is once it comes from the plate: as sure as the plate reading (services/plate.py)
+PLATE_CONFIDENCE = 0.95
+
 SPEC_PROMPT = """
 You are a professional vehicle inspector analyzing a car photo for a Kenyan vehicle marketplace.
 Carefully analyze the vehicle's body shape, logos, and badges to determine the exact make and model.
@@ -44,8 +53,29 @@ Extract details and return ONLY valid JSON:
   "trim":           {"value": "G",                         "confidence": 0.50}
 }
 colour is the body colour, one of: """ + ', '.join(VALID_COLOURS) + """ (pearl white is White, gunmetal is Grey).
+condition is one of: """ + ', '.join(VALID_CONDITIONS) + """.
+A car showing a Kenyan registration plate (such as KDP 717H: white at the front, yellow at the back) is registered in
+Kenya, so it is never "New" or "Foreign Used Unregistered". Use "Foreign Used Unregistered" only for an imported car
+with no Kenyan plate.
 Return ONLY the JSON object.
 """
+
+def match_condition_to_plate(result: dict | None, plate: str | None) -> dict | None:
+    """Correct the condition read from the photos against the plate read from them. A car wearing a Kenyan national
+    plate is registered, so it can't be New or Foreign Used Unregistered, whatever Gemini guessed (it used to call a
+    plated KDP Golf R "Foreign Used Unregistered"): it becomes Local Used, as certain as the plate. A condition that
+    fits a plate (Foreign Used Registered, Reconditioned...) is kept. Run once both the specs and plate steps are done;
+    the add-listing form makes the same correction (kemotives-nextjs addProduct.jsx)."""
+    if not result or not plate or not NATIONAL_PLATE.match(plate.strip().upper()):
+        return result
+    if result.get('condition') in (None, *UNREGISTERED_CONDITIONS):
+        # The plate itself stays out of the log: the end of a plate is private (services/plate.py mask_plate)
+        print(f"Condition {result.get('condition')!r} contradicts the Kenyan plate read: Local Used")
+        result['condition'] = 'Local Used'
+        result.setdefault('field_confidences', {})['condition'] = PLATE_CONFIDENCE
+        result['autopopulate'] = True
+    return result
+
 
 def extract_specs(images: list[bytes]) -> dict:
     try:

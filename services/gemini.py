@@ -11,6 +11,27 @@ TIMEOUT_MS = 30_000
 # is 0: with the default, the same photos came back as 2007 one run and 2005 the next, at the same confidence.
 READING = types.GenerateContentConfig(temperature=0, thinking_config=types.ThinkingConfig(thinking_budget=0))
 
+# Longest a plate search or a read of a cropped plate may take (milliseconds). A photo can need Vision (15 s), a search
+# and a read, all within the 45 s the admin panel's photo check waits (kemotives-laravel PhotoConditionCheck) and the
+# 60 s the add-listing form waits.
+PLATE_TIMEOUT_MS = 15_000
+
+# READING, for a cropped plate
+PLATE_READING = types.GenerateContentConfig(
+    temperature=0,
+    thinking_config=types.ThinkingConfig(thinking_budget=0),
+    http_options=types.HttpOptions(timeout=PLATE_TIMEOUT_MS),
+)
+
+# For finding the number plates in a photo, to blur them: as PLATE_READING, answering in JSON. Google recommends
+# thinking off for Gemini 2.5's object detection.
+LOCATING = types.GenerateContentConfig(
+    temperature=0,
+    thinking_config=types.ThinkingConfig(thinking_budget=0),
+    response_mime_type='application/json',
+    http_options=types.HttpOptions(timeout=PLATE_TIMEOUT_MS),
+)
+
 
 _client = None
 _client_lock = threading.Lock()
