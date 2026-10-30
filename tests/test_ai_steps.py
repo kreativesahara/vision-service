@@ -110,9 +110,10 @@ def test_specs_do_not_autofill_when_nothing_is_confident(fake_gemini, make_jpeg)
     assert result['autopopulate'] is False
 
 
-def test_a_car_with_a_kenyan_plate_is_never_unregistered():
-    # Gemini called a Golf R wearing KDP 717H "Foreign Used Unregistered"
-    for guessed in ('Foreign Used Unregistered', 'New', None):
+def test_a_car_with_a_kenyan_plate_is_local_used():
+    # Gemini called a Golf R wearing KDP 717H "Foreign Used Unregistered", then "Foreign Used Registered"; kemotives
+    # counts any car on a Kenyan plate as Local Used, recent imports included
+    for guessed in ('Foreign Used Unregistered', 'Foreign Used Registered', 'New', None):
         result = specs.match_condition_to_plate(
             {'condition': guessed, 'field_confidences': {'condition': 0.8}, 'autopopulate': False}, 'KDP 717H')
         assert result['condition'] == 'Local Used'
@@ -121,7 +122,7 @@ def test_a_car_with_a_kenyan_plate_is_never_unregistered():
 
 
 def test_a_condition_that_fits_a_plate_is_kept():
-    for fits in ('Foreign Used Registered', 'Local Used', 'Reconditioned', 'Certified Pre-Owned'):
+    for fits in ('Local Used', 'Reconditioned', 'Certified Pre-Owned'):
         assert specs.match_condition_to_plate({'condition': fits}, 'KDP 717H')['condition'] == fits
 
 
