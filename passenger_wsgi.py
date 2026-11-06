@@ -1,5 +1,6 @@
 import sys
 import os
+import hmac
 import threading
 import traceback
 import json
@@ -110,6 +111,21 @@ def json_response(start_response, data, status="200 OK"):
 
 def error_response(start_response, detail, status="500 Internal Server Error"):
     return json_response(start_response, {"detail": detail}, status)
+
+
+# ── Who may run an analysis ───────────────────────────────────
+# With VISION_SERVICE_SECRET set (.env), /analyse answers only callers that send it in X-Kemotives-Vision-Secret: the
+# marketplace's server (its /api/vision/analyse route, which the add-listing form calls) and the Laravel API (the
+# admin panel's photo check). Anyone else gets the same 404 as an unknown path, so strangers can't run Gemini on our
+# account. Unset, the check is off. Read per request, so a changed .env needs only the usual app restart.
+SECRET_ENVIRON_KEY = "HTTP_X_KEMOTIVES_VISION_SECRET"
+
+
+def trusted_caller(environ):
+    secret = os.environ.get("VISION_SERVICE_SECRET", "").strip()
+    if not secret:
+        return True
+    return hmac.compare_digest(environ.get(SECRET_ENVIRON_KEY, "").encode("utf-8"), secret.encode("utf-8"))
 
 
 # ── Multipart parser (no cgi module needed) ───────────────────
@@ -337,6 +353,8 @@ def application(environ, start_response):
             return handle_health(environ, start_response)
 
         if path == "/analyse" and method == "POST":
+            if not trusted_caller(environ):
+                return error_response(start_response, "Not Found", "404 Not Found")
             return handle_analyse(environ, start_response)
 
         return error_response(start_response, "Not Found", "404 Not Found")

@@ -17,13 +17,21 @@ def log_to_tmp(monkeypatch, tmp_path):
     return log_file
 
 
-def call(path, method='GET', body=b'', content_type=None):
+@pytest.fixture(autouse=True)
+def no_caller_secret(monkeypatch):
+    """The caller check is off unless a test turns it on, whatever the developer's .env holds."""
+    monkeypatch.delenv('VISION_SERVICE_SECRET', raising=False)
+
+
+def call(path, method='GET', body=b'', content_type=None, secret=None):
     environ = {
         'PATH_INFO': path,
         'REQUEST_METHOD': method,
         'CONTENT_LENGTH': str(len(body)),
         'wsgi.input': io.BytesIO(body),
     }
+    if secret is not None:
+        environ['HTTP_X_KEMOTIVES_VISION_SECRET'] = secret
     if content_type:
         environ['CONTENT_TYPE'] = content_type
     response = {}
@@ -113,6 +121,18 @@ def test_a_failing_step_does_not_fail_the_analysis(monkeypatch, photos, log_to_t
     assert data['specs'] is None  # the form treats a missing result as "nothing to autofill"
     assert data['plate']['full_plate'] == 'KBX 737U'
     assert 'Analysis step specs failed' in log_to_tmp.read_text()
+
+
+def test_with_a_secret_set_only_callers_that_send_it_can_analyse(monkeypatch, photos):
+    monkeypatch.setenv('VISION_SERVICE_SECRET', 'shared-vision-secret')
+    body, content_type = multipart(photos)
+
+    # Strangers get the same answer as a path that doesn't exist
+    assert call('/analyse', 'POST', body, content_type)[::2] == ('404 Not Found', {'detail': 'Not Found'})
+    assert call('/analyse', 'POST', body, content_type, secret='guessed')[0] == '404 Not Found'
+    assert call('/analyse', 'POST', body, content_type, secret='shared-vision-secret')[0] == '200 OK'
+    # The health check stays open for deploy checks; it shows only the status and commit
+    assert call('/health')[0] == '200 OK'
 
 
 def test_analyse_rejects_requests_without_photos():

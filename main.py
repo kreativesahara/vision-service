@@ -5,9 +5,10 @@ import os
 for _var in ('OPENBLAS_NUM_THREADS', 'MKL_NUM_THREADS', 'OMP_NUM_THREADS', 'VECLIB_MAXIMUM_THREADS', 'NUMEXPR_NUM_THREADS'):
     os.environ.setdefault(_var, '1')
 
+import hmac
 import time
 import asyncio
-from fastapi import FastAPI, File, UploadFile, HTTPException
+from fastapi import FastAPI, File, Header, UploadFile, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from typing import List
 from concurrent.futures import ThreadPoolExecutor
@@ -35,7 +36,15 @@ app.add_middleware(
 )
 
 @app.post('/analyse', response_model=VisionResponse)
-async def analyse_vehicle(images: List[UploadFile] = File(...)):
+async def analyse_vehicle(
+    images: List[UploadFile] = File(...),
+    x_kemotives_vision_secret: str = Header(default=''),
+):
+    # The same caller check as passenger_wsgi.py: with VISION_SERVICE_SECRET set, only callers sending it get through
+    secret = os.environ.get('VISION_SERVICE_SECRET', '').strip()
+    if secret and not hmac.compare_digest(x_kemotives_vision_secret.encode('utf-8'), secret.encode('utf-8')):
+        raise HTTPException(status_code=404, detail='Not Found')
+
     start = time.time()
     if not images:
         raise HTTPException(status_code=400, detail='No images provided')
